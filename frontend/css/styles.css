@@ -1,0 +1,22 @@
+/* Custom styles for workout tracker */
+
+/* Ensure dark mode */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Large touch targets */
+button {
+    min-height: 48px;
+    touch-action: manipulation;
+}
+
+/* Transitions */
+.transition-colors {
+    transition: background-color 0.15s ease;
+}
+
+/* Status bar animation */
+[x-transition] {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
