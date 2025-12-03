@@ -72,11 +72,20 @@ def init_database(user_id: str = "default") -> None:
         conn.commit()
 
 @contextmanager
-def get_connection(user_id: str = "default"):
-    """Get database connection context manager."""
+def get_connection(user_id: str = "default", isolation_level: str = None):
+    """
+    Get database connection context manager.
+
+    Args:
+        user_id: User identifier
+        isolation_level: Transaction isolation level (None/DEFERRED, IMMEDIATE, EXCLUSIVE)
+                        Default None (DEFERRED) for reads, IMMEDIATE for writes
+    """
     db_path = get_db_path(user_id)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=5.0)  # 5 second timeout for lock waits
     conn.row_factory = sqlite3.Row
+    if isolation_level is not None:
+        conn.isolation_level = isolation_level
     try:
         yield conn
     finally:
@@ -86,13 +95,14 @@ def append_event(
     event_id: str,
     event_type: str,
     payload: Dict[str, Any],
-    user_id: str = "default"
+    user_id: str = "default",
+    conn: Optional[sqlite3.Connection] = None
 ) -> Dict[str, Any]:
     """Append an event to the event store."""
     timestamp = datetime.utcnow().isoformat() + "Z"
 
-    with get_connection(user_id) as conn:
-        cursor = conn.cursor()
+    def _append(connection):
+        cursor = connection.cursor()
         cursor.execute(
             """
             INSERT INTO events (event_id, timestamp, event_type, payload)
@@ -100,7 +110,15 @@ def append_event(
             """,
             (event_id, timestamp, event_type, json.dumps(payload))
         )
-        conn.commit()
+
+    if conn:
+        # Use provided connection (transaction managed externally)
+        _append(conn)
+    else:
+        # Create own connection and commit
+        with get_connection(user_id) as connection:
+            _append(connection)
+            connection.commit()
 
     return {
         "event_id": event_id,
@@ -151,10 +169,10 @@ def get_events(
             for row in rows
         ]
 
-def get_projection(key: str, user_id: str = "default") -> Optional[Dict[str, Any]]:
+def get_projection(key: str, user_id: str = "default", conn: Optional[sqlite3.Connection] = None) -> Optional[Dict[str, Any]]:
     """Get a projection by key."""
-    with get_connection(user_id) as conn:
-        cursor = conn.cursor()
+    def _get(connection):
+        cursor = connection.cursor()
         cursor.execute(
             "SELECT data FROM projections WHERE key = ?",
             (key,)
@@ -164,12 +182,18 @@ def get_projection(key: str, user_id: str = "default") -> Optional[Dict[str, Any
             return json.loads(row["data"])
         return None
 
-def set_projection(key: str, data: Optional[Dict[str, Any]], user_id: str = "default") -> None:
+    if conn:
+        return _get(conn)
+    else:
+        with get_connection(user_id) as connection:
+            return _get(connection)
+
+def set_projection(key: str, data: Optional[Dict[str, Any]], user_id: str = "default", conn: Optional[sqlite3.Connection] = None) -> None:
     """Set a projection value."""
     timestamp = datetime.utcnow().isoformat() + "Z"
 
-    with get_connection(user_id) as conn:
-        cursor = conn.cursor()
+    def _set(connection):
+        cursor = connection.cursor()
         cursor.execute(
             """
             INSERT OR REPLACE INTO projections (key, data, updated_at)
@@ -177,7 +201,15 @@ def set_projection(key: str, data: Optional[Dict[str, Any]], user_id: str = "def
             """,
             (key, json.dumps(data), timestamp)
         )
-        conn.commit()
+
+    if conn:
+        # Use provided connection (transaction managed externally)
+        _set(conn)
+    else:
+        # Create own connection and commit
+        with get_connection(user_id) as connection:
+            _set(connection)
+            connection.commit()
 
 def load_default_exercises(user_id: str = "default") -> None:
     """Load default exercises into database."""

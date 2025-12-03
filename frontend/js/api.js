@@ -58,5 +58,19 @@ const API = {
 
         const result = await response.json();
         return result.events;
+    },
+
+    /**
+     * Get all exercises.
+     */
+    async getExercises() {
+        const response = await fetch(`${this.baseUrl}/api/exercises`);
+
+        if (!response.ok) {
+            throw new Error('Failed to get exercises');
+        }
+
+        const result = await response.json();
+        return result.exercises;
     }
 };

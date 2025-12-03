@@ -5,14 +5,14 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 
 from backend.config import BASE_DIR
-from backend.database import init_database
+from backend.database import init_database, load_default_exercises, get_exercises
 from backend.models import (
     EmitEventRequest,
     EmitEventResponse,
     HealthResponse,
     ProjectionResponse,
 )
-from backend.events import emit_event
+from backend.events import emit_event, ConcurrencyConflictError
 from backend.database import get_projection, get_events
 
 # Initialize FastAPI app
@@ -26,6 +26,7 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup():
     init_database("default")
+    load_default_exercises("default")
 
 # Health check
 @app.get("/api/health", response_model=HealthResponse)
@@ -50,9 +51,14 @@ async def emit_event_endpoint(request: EmitEventRequest):
             payload=event_record["payload"],
             derived=derived
         )
+    except ConcurrencyConflictError as e:
+        # Database lock conflict - return 409 Conflict so client can retry
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
+        # Validation error - return 400 Bad Request
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        # Unexpected error - return 500 Internal Server Error
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/events")
@@ -67,6 +73,13 @@ async def get_projection_endpoint(key: str):
     """Get a projection by key."""
     data = get_projection(key, user_id="default")
     return ProjectionResponse(key=key, data=data)
+
+# Exercises API
+@app.get("/api/exercises")
+async def list_exercises():
+    """Get all available exercises."""
+    exercises = get_exercises(user_id="default")
+    return {"exercises": exercises}
 
 # Serve frontend
 FRONTEND_DIR = BASE_DIR / "frontend"

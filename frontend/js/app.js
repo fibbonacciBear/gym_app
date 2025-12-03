@@ -5,12 +5,31 @@ function workoutApp() {
     return {
         // State
         currentWorkout: null,
+        allExercises: [],
         statusMessage: '',
         statusType: 'success',
+        showExerciseSelector: false,
+        showSetLogger: false,
+        selectedExerciseId: null,
+        setForm: {
+            weight: '',
+            reps: '',
+            unit: 'kg'
+        },
 
         // Initialize
         async init() {
+            await this.loadExercises();
             await this.loadCurrentWorkout();
+        },
+
+        // Load all exercises from the library
+        async loadExercises() {
+            try {
+                this.allExercises = await API.getExercises();
+            } catch (error) {
+                console.error('Failed to load exercises:', error);
+            }
         },
 
         // Load current workout from projection
@@ -20,6 +39,12 @@ function workoutApp() {
             } catch (error) {
                 console.error('Failed to load current workout:', error);
             }
+        },
+
+        // Get exercise name by ID
+        getExerciseName(exerciseId) {
+            const exercise = this.allExercises.find(ex => ex.id === exerciseId);
+            return exercise ? exercise.name : exerciseId;
         },
 
         // Start a new workout
@@ -33,6 +58,82 @@ function workoutApp() {
             }
         },
 
+        // Add exercise to workout
+        async addExercise(exerciseId) {
+            if (!this.currentWorkout) return;
+
+            try {
+                await API.emitEvent('ExerciseAdded', {
+                    workout_id: this.currentWorkout.id,
+                    exercise_id: exerciseId
+                });
+                this.showExerciseSelector = false;
+                this.showStatus('Exercise added!', 'success');
+                await this.loadCurrentWorkout();
+            } catch (error) {
+                this.showStatus('Failed to add exercise: ' + error.message, 'error');
+            }
+        },
+
+        // Select exercise to log a set
+        selectExerciseForSet(exerciseId) {
+            this.selectedExerciseId = exerciseId;
+
+            // Prefill with last set values if available
+            const exercise = this.currentWorkout.exercises.find(ex => ex.exercise_id === exerciseId);
+            if (exercise && exercise.sets.length > 0) {
+                const lastSet = exercise.sets[exercise.sets.length - 1];
+                this.setForm.weight = lastSet.weight;
+                this.setForm.reps = lastSet.reps;
+                this.setForm.unit = lastSet.unit;
+            } else {
+                this.setForm.weight = '';
+                this.setForm.reps = '';
+                this.setForm.unit = 'kg';
+            }
+
+            this.showSetLogger = true;
+        },
+
+        // Log a set
+        async logSet() {
+            if (!this.currentWorkout) return;
+
+            try {
+                await API.emitEvent('SetLogged', {
+                    workout_id: this.currentWorkout.id,
+                    exercise_id: this.selectedExerciseId,
+                    weight: parseFloat(this.setForm.weight),
+                    reps: parseInt(this.setForm.reps),
+                    unit: this.setForm.unit
+                });
+                this.showSetLogger = false;
+                this.showStatus('Set logged!', 'success');
+                await this.loadCurrentWorkout();
+            } catch (error) {
+                this.showStatus('Failed to log set: ' + error.message, 'error');
+            }
+        },
+
+        // Delete a set
+        async deleteSet(eventId) {
+            if (!this.currentWorkout) return;
+
+            if (!confirm('Delete this set?')) {
+                return;
+            }
+
+            try {
+                await API.emitEvent('SetDeleted', {
+                    original_event_id: eventId
+                });
+                this.showStatus('Set deleted', 'success');
+                await this.loadCurrentWorkout();
+            } catch (error) {
+                this.showStatus('Failed to delete set: ' + error.message, 'error');
+            }
+        },
+
         // Finish the current workout
         async finishWorkout() {
             if (!this.currentWorkout) return;
@@ -42,7 +143,7 @@ function workoutApp() {
                     workout_id: this.currentWorkout.id
                 });
                 this.showStatus('Workout saved!', 'success');
-                this.currentWorkout = null;
+                await this.loadCurrentWorkout();
             } catch (error) {
                 this.showStatus('Failed to finish workout: ' + error.message, 'error');
             }
@@ -61,7 +162,7 @@ function workoutApp() {
                     workout_id: this.currentWorkout.id
                 });
                 this.showStatus('Workout discarded', 'success');
-                this.currentWorkout = null;
+                await this.loadCurrentWorkout();
             } catch (error) {
                 this.showStatus('Failed to discard workout: ' + error.message, 'error');
             }

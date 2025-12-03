@@ -1,0 +1,29 @@
+{
+  "exercises": [
+    {"id": "bench-press", "name": "Bench Press", "category": "chest"},
+    {"id": "incline-bench-press", "name": "Incline Bench Press", "category": "chest"},
+    {"id": "dumbbell-fly", "name": "Dumbbell Fly", "category": "chest"},
+
+    {"id": "deadlift", "name": "Deadlift", "category": "back"},
+    {"id": "barbell-row", "name": "Barbell Row", "category": "back"},
+    {"id": "pull-up", "name": "Pull-up", "category": "back"},
+    {"id": "lat-pulldown", "name": "Lat Pulldown", "category": "back"},
+
+    {"id": "overhead-press", "name": "Overhead Press", "category": "shoulders"},
+    {"id": "lateral-raise", "name": "Lateral Raise", "category": "shoulders"},
+    {"id": "face-pull", "name": "Face Pull", "category": "shoulders"},
+
+    {"id": "barbell-curl", "name": "Barbell Curl", "category": "arms"},
+    {"id": "tricep-pushdown", "name": "Tricep Pushdown", "category": "arms"},
+    {"id": "hammer-curl", "name": "Hammer Curl", "category": "arms"},
+
+    {"id": "squat", "name": "Squat", "category": "legs"},
+    {"id": "leg-press", "name": "Leg Press", "category": "legs"},
+    {"id": "romanian-deadlift", "name": "Romanian Deadlift", "category": "legs"},
+    {"id": "leg-curl", "name": "Leg Curl", "category": "legs"},
+    {"id": "leg-extension", "name": "Leg Extension", "category": "legs"},
+    {"id": "calf-raise", "name": "Calf Raise", "category": "legs"},
+
+    {"id": "plank", "name": "Plank", "category": "core"}
+  ]
+}
