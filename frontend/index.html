@@ -12,10 +12,31 @@
     <div x-data="workoutApp()" x-init="init()" class="container mx-auto px-4 py-8 max-w-md">
 
         <!-- Header -->
-        <header class="text-center mb-8">
+        <header class="text-center mb-6">
             <h1 class="text-2xl font-bold">🏋️ Workout Tracker</h1>
             <p class="text-gray-400 text-sm">Voice-first logging</p>
         </header>
+
+        <!-- Tab Navigation -->
+        <nav class="flex mb-6 bg-gray-800 rounded-xl p-1">
+            <button
+                @click="activeTab = 'workout'"
+                :class="{'bg-gray-700': activeTab === 'workout'}"
+                class="flex-1 py-2 rounded-lg transition-colors"
+            >
+                Workout
+            </button>
+            <button
+                @click="activeTab = 'history'; loadHistory()"
+                :class="{'bg-gray-700': activeTab === 'history'}"
+                class="flex-1 py-2 rounded-lg transition-colors"
+            >
+                History
+            </button>
+        </nav>
+
+        <!-- Workout Tab Content -->
+        <div x-show="activeTab === 'workout'">
 
         <!-- No Active Workout -->
         <div x-show="!currentWorkout" class="text-center">
@@ -114,6 +135,93 @@
 
         </div>
 
+        </div>
+        <!-- End Workout Tab Content -->
+
+        <!-- History Tab Content -->
+        <div x-show="activeTab === 'history'" class="space-y-4">
+            <template x-if="historyLoading">
+                <p class="text-center text-gray-400">Loading...</p>
+            </template>
+
+            <template x-if="!historyLoading && workoutHistory.length === 0">
+                <p class="text-center text-gray-400 py-8">No workouts yet. Complete a workout to see it here!</p>
+            </template>
+
+            <template x-for="workout in workoutHistory" :key="workout.id">
+                <div
+                    @click="selectedWorkout = workout"
+                    class="bg-gray-800 rounded-xl p-4 cursor-pointer hover:bg-gray-750 transition-colors"
+                >
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="font-semibold" x-text="formatDate(workout.completed_at)"></p>
+                            <p class="text-gray-400 text-sm">
+                                <span x-text="workout.stats.exercise_count"></span> exercises ·
+                                <span x-text="workout.stats.total_sets"></span> sets
+                            </p>
+                        </div>
+                        <p class="text-green-400 font-mono" x-text="formatVolume(workout.stats.total_volume)"></p>
+                    </div>
+                </div>
+            </template>
+        </div>
+        <!-- End History Tab Content -->
+
+        <!-- Workout Detail Modal -->
+        <div
+            x-show="selectedWorkout"
+            @click.self="selectedWorkout = null"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
+        >
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold" x-text="formatDate(selectedWorkout?.completed_at)"></h3>
+                    <button @click="selectedWorkout = null" class="text-gray-400 hover:text-white">✕</button>
+                </div>
+
+                <!-- Workout Stats -->
+                <div class="bg-gray-700 rounded-lg p-3 mb-4">
+                    <div class="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                            <p class="text-gray-400 text-xs">Exercises</p>
+                            <p class="text-lg font-semibold" x-text="selectedWorkout?.stats.exercise_count"></p>
+                        </div>
+                        <div>
+                            <p class="text-gray-400 text-xs">Sets</p>
+                            <p class="text-lg font-semibold" x-text="selectedWorkout?.stats.total_sets"></p>
+                        </div>
+                        <div>
+                            <p class="text-gray-400 text-xs">Volume</p>
+                            <p class="text-lg font-semibold" x-text="formatVolume(selectedWorkout?.stats.total_volume)"></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Exercises -->
+                <template x-for="exercise in selectedWorkout?.exercises" :key="exercise.exercise_id">
+                    <div class="mb-4">
+                        <h4 class="font-semibold text-blue-400 mb-2" x-text="getExerciseName(exercise.exercise_id)"></h4>
+                        <template x-for="(set, idx) in exercise.sets" :key="idx">
+                            <p class="text-gray-300 ml-4 text-sm">
+                                Set <span x-text="idx + 1"></span>:
+                                <span class="font-mono" x-text="set.weight"></span><span x-text="set.unit"></span> ×
+                                <span x-text="set.reps"></span>
+                            </p>
+                        </template>
+                    </div>
+                </template>
+
+                <template x-if="selectedWorkout?.notes">
+                    <div class="mt-4 p-3 bg-gray-700 rounded-lg">
+                        <p class="text-gray-400 text-xs mb-1">Notes</p>
+                        <p class="text-sm" x-text="selectedWorkout.notes"></p>
+                    </div>
+                </template>
+            </div>
+        </div>
+
         <!-- Exercise Selector Modal -->
         <div x-show="showExerciseSelector"
              x-transition
@@ -203,7 +311,7 @@
         <div
             x-show="statusMessage"
             x-transition
-            class="fixed bottom-4 left-4 right-4 bg-gray-800 rounded-xl p-4 text-center"
+            class="fixed top-20 left-4 right-4 bg-gray-800 rounded-xl p-4 text-center shadow-lg z-50"
             :class="{'border-green-500 border': statusType === 'success', 'border-red-500 border': statusType === 'error'}"
         >
             <p x-text="statusMessage"></p>

@@ -49,12 +49,14 @@ class SetLoggedPayload(BaseModel):
     unit: WeightUnit = WeightUnit.KG
 
 class SetModifiedPayload(BaseModel):
+    workout_id: str
     original_event_id: str
     weight: Optional[float] = Field(default=None, ge=0)
     reps: Optional[int] = Field(default=None, ge=0)
     unit: Optional[WeightUnit] = None
 
 class SetDeletedPayload(BaseModel):
+    workout_id: str
     original_event_id: str
     reason: Optional[str] = None
 

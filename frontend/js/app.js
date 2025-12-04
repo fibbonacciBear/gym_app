@@ -4,8 +4,12 @@
 function workoutApp() {
     return {
         // State
+        activeTab: 'workout',
         currentWorkout: null,
         allExercises: [],
+        workoutHistory: [],
+        historyLoading: false,
+        selectedWorkout: null,
         statusMessage: '',
         statusType: 'success',
         showExerciseSelector: false,
@@ -125,6 +129,7 @@ function workoutApp() {
 
             try {
                 await API.emitEvent('SetDeleted', {
+                    workout_id: this.currentWorkout.id,
                     original_event_id: eventId
                 });
                 this.showStatus('Set deleted', 'success');
@@ -175,6 +180,43 @@ function workoutApp() {
             setTimeout(() => {
                 this.statusMessage = '';
             }, 3000);
+        },
+
+        // Load workout history
+        async loadHistory() {
+            this.historyLoading = true;
+            try {
+                const response = await fetch('/api/history');
+                if (!response.ok) {
+                    throw new Error('Failed to load history');
+                }
+                this.workoutHistory = await response.json();
+            } catch (error) {
+                console.error('Failed to load history:', error);
+                this.showStatus('Failed to load history', 'error');
+            }
+            this.historyLoading = false;
+        },
+
+        // Format date for display
+        formatDate(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            return date.toLocaleDateString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        },
+
+        // Format volume for display
+        formatVolume(volume) {
+            if (!volume) return '0 kg';
+            if (volume >= 1000) {
+                return (volume / 1000).toFixed(1) + 'k kg';
+            }
+            return Math.round(volume) + ' kg';
         }
     };
 }

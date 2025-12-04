@@ -75,6 +75,10 @@ def validate_event_preconditions(
         if not current:
             raise ValueError("Cannot delete set: no active workout")
 
+        # Validate workout_id matches
+        if payload.get("workout_id") != current["id"]:
+            raise ValueError(f"Event workout_id {payload.get('workout_id')} does not match current workout {current['id']}")
+
         # Validate set exists
         original_event_id = payload.get("original_event_id")
         set_found = False
@@ -91,6 +95,10 @@ def validate_event_preconditions(
         current = _get("current_workout")
         if not current:
             raise ValueError("Cannot modify set: no active workout")
+
+        # Validate workout_id matches
+        if payload.get("workout_id") != current["id"]:
+            raise ValueError(f"Event workout_id {payload.get('workout_id')} does not match current workout {current['id']}")
 
         # Validate set exists
         original_event_id = payload.get("original_event_id")
@@ -259,12 +267,37 @@ def update_projections(
         # Move current workout to history, clear current
         current = _get_projection("current_workout")
         if current:
-            # Add to workout history
-            history = _get_projection("workout_history") or []
+            # Calculate workout stats
+            total_sets = sum(len(e["sets"]) for e in current["exercises"])
+
+            # Calculate volume with unit normalization (1 lb = 0.453592 kg)
+            total_volume_kg = 0.0
+            for exercise in current["exercises"]:
+                for set_data in exercise["sets"]:
+                    weight = set_data.get("weight", 0)
+                    reps = set_data.get("reps", 0)
+                    unit = set_data.get("unit", "kg")
+                    # Normalize to kg
+                    weight_kg = weight if unit == "kg" else weight * 0.453592
+                    total_volume_kg += weight_kg * reps
+
+            # Create history entry with stats
             current["completed_at"] = timestamp
             current["notes"] = payload.get("notes", "")
+            current["stats"] = {
+                "exercise_count": len(current["exercises"]),
+                "total_sets": total_sets,
+                "total_volume": total_volume_kg
+            }
+
+            # Add to workout history
+            history = _get_projection("workout_history") or []
             history.insert(0, current)  # Most recent first
             _set_projection("workout_history", history)
+
+            # Set derived data
+            derived["total_sets"] = total_sets
+            derived["total_volume"] = total_volume_kg
 
         # Clear current workout
         _set_projection("current_workout", None)

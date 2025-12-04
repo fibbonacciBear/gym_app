@@ -14,6 +14,7 @@ from backend.models import (
 )
 from backend.events import emit_event, ConcurrencyConflictError
 from backend.database import get_projection, get_events
+from backend.api.history import router as history_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -21,6 +22,9 @@ app = FastAPI(
     description="A voice-first workout logging API",
     version="0.1.0"
 )
+
+# Include routers
+app.include_router(history_router)
 
 # Initialize database on startup
 @app.on_event("startup")
