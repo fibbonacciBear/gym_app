@@ -15,6 +15,7 @@ from backend.models import (
 from backend.events import emit_event, ConcurrencyConflictError
 from backend.database import get_projection, get_events
 from backend.api.history import router as history_router
+from backend.api.templates import router as templates_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -25,6 +26,7 @@ app = FastAPI(
 
 # Include routers
 app.include_router(history_router)
+app.include_router(templates_router)
 
 # Initialize database on startup
 @app.on_event("startup")

@@ -20,6 +20,10 @@ function workoutApp() {
             reps: '',
             unit: 'kg'
         },
+        templates: [],
+        showSaveTemplateModal: false,
+        showTemplatesModal: false,
+        templateName: '',
 
         // Initialize
         async init() {
@@ -123,6 +127,11 @@ function workoutApp() {
         async deleteSet(eventId) {
             if (!this.currentWorkout) return;
 
+            if (!eventId) {
+                this.showStatus('Cannot delete legacy set. Finish workout to clear.', 'error');
+                return;
+            }
+
             if (!confirm('Delete this set?')) {
                 return;
             }
@@ -217,6 +226,73 @@ function workoutApp() {
                 return (volume / 1000).toFixed(1) + 'k kg';
             }
             return Math.round(volume) + ' kg';
+        },
+
+        // Load templates
+        async loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                if (!response.ok) {
+                    throw new Error('Failed to load templates');
+                }
+                this.templates = await response.json();
+            } catch (error) {
+                console.error('Failed to load templates:', error);
+                this.showStatus('Failed to load templates', 'error');
+            }
+        },
+
+        // Save current workout as a template
+        async saveAsTemplate() {
+            if (!this.templateName.trim() || !this.currentWorkout) {
+                this.showStatus('Please enter a template name', 'error');
+                return;
+            }
+
+            const exerciseIds = this.currentWorkout.exercises.map(e => e.exercise_id);
+
+            try {
+                const response = await fetch('/api/templates', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: this.templateName.trim(),
+                        exercise_ids: exerciseIds
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to save template');
+                }
+
+                this.showStatus('Template saved!', 'success');
+                this.showSaveTemplateModal = false;
+                this.templateName = '';
+                await this.loadTemplates();
+            } catch (error) {
+                console.error('Failed to save template:', error);
+                this.showStatus('Failed to save template', 'error');
+            }
+        },
+
+        // Start a workout from a template
+        async startFromTemplate(templateId) {
+            try {
+                const response = await fetch(`/api/templates/${templateId}/start`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to start from template');
+                }
+
+                await this.loadCurrentWorkout();
+                this.showTemplatesModal = false;
+                this.showStatus('Workout started from template!', 'success');
+            } catch (error) {
+                console.error('Failed to start from template:', error);
+                this.showStatus('Failed to start from template', 'error');
+            }
         }
     };
 }

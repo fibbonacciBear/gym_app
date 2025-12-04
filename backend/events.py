@@ -263,6 +263,17 @@ def update_projections(
 
         _set_projection("current_workout", current_workout)
 
+        # Track template usage
+        from_template_id = payload.get("from_template_id")
+        if from_template_id:
+            templates = _get_projection("workout_templates") or []
+            for template in templates:
+                if template["id"] == from_template_id:
+                    template["last_used_at"] = timestamp
+                    template["use_count"] = template.get("use_count", 0) + 1
+                    _set_projection("workout_templates", templates)
+                    break
+
     elif event_type == EventType.WORKOUT_COMPLETED:
         # Move current workout to history, clear current
         current = _get_projection("current_workout")
@@ -400,7 +411,9 @@ def update_projections(
             "name": payload.get("name"),
             "exercise_ids": payload.get("exercise_ids"),
             "source_workout_id": payload.get("source_workout_id"),
-            "created_at": timestamp
+            "created_at": timestamp,
+            "last_used_at": None,
+            "use_count": 0
         }
         templates.append(template)
         _set_projection("workout_templates", templates)

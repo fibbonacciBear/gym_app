@@ -39,13 +39,19 @@
         <div x-show="activeTab === 'workout'">
 
         <!-- No Active Workout -->
-        <div x-show="!currentWorkout" class="text-center">
+        <div x-show="!currentWorkout" class="text-center space-y-4">
             <p class="text-gray-400 mb-6">No workout in progress</p>
             <button
                 @click="startWorkout()"
-                class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-colors"
+                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-colors"
             >
                 Start Workout
+            </button>
+            <button
+                @click="showTemplatesModal = true; loadTemplates()"
+                class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+            >
+                Start from Template
             </button>
         </div>
 
@@ -96,12 +102,20 @@
                                     <div class="flex items-center gap-3">
                                         <span class="font-mono" x-text="`${set.weight}${set.unit} × ${set.reps}`"></span>
                                         <button
+                                            x-show="set.event_id"
                                             @click="deleteSet(set.event_id)"
                                             class="text-red-400 hover:text-red-300 text-sm"
                                             title="Delete set"
                                         >
                                             ✕
                                         </button>
+                                        <span
+                                            x-show="!set.event_id"
+                                            class="text-gray-500 text-xs"
+                                            title="Legacy set - finish workout to clear"
+                                        >
+                                            (legacy)
+                                        </span>
                                     </div>
                                 </div>
                             </template>
@@ -116,6 +130,15 @@
                     No exercises added yet
                 </div>
             </div>
+
+            <!-- Save as Template Button -->
+            <button
+                x-show="currentWorkout && currentWorkout.exercises && currentWorkout.exercises.length > 0"
+                @click="showSaveTemplateModal = true"
+                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+            >
+                Save as Template
+            </button>
 
             <!-- Action Buttons -->
             <div class="grid grid-cols-2 gap-4">
@@ -304,6 +327,79 @@
                         </button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <!-- Save Template Modal -->
+        <div
+            x-show="showSaveTemplateModal"
+            @click.self="showSaveTemplateModal = false"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
+        >
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md">
+                <h3 class="text-lg font-bold mb-4">Save as Template</h3>
+                <input
+                    type="text"
+                    x-model="templateName"
+                    placeholder="Template name (e.g., Push Day)"
+                    class="w-full bg-gray-700 rounded-lg px-4 py-3 mb-4 text-white"
+                    @keyup.enter="saveAsTemplate()"
+                >
+                <div class="flex gap-4">
+                    <button
+                        @click="showSaveTemplateModal = false"
+                        class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 rounded-xl transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        @click="saveAsTemplate()"
+                        class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl transition-colors"
+                    >
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Templates List Modal -->
+        <div
+            x-show="showTemplatesModal"
+            @click.self="showTemplatesModal = false"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
+        >
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <h3 class="text-lg font-bold mb-4">Your Templates</h3>
+
+                <template x-if="templates.length === 0">
+                    <p class="text-gray-400 text-center py-4">No templates yet. Create one by saving a workout!</p>
+                </template>
+
+                <div class="space-y-2 mb-4">
+                    <template x-for="template in templates" :key="template.id">
+                        <div
+                            @click="startFromTemplate(template.id)"
+                            class="bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors"
+                        >
+                            <p class="font-semibold" x-text="template.name"></p>
+                            <p class="text-gray-400 text-sm">
+                                <span x-text="template.exercise_ids.length"></span> exercises
+                                <template x-if="template.use_count > 0">
+                                    · Used <span x-text="template.use_count"></span> times
+                                </template>
+                            </p>
+                        </div>
+                    </template>
+                </div>
+
+                <button
+                    @click="showTemplatesModal = false"
+                    class="w-full bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 rounded-xl transition-colors"
+                >
+                    Cancel
+                </button>
             </div>
         </div>
 
