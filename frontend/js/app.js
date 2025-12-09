@@ -24,9 +24,18 @@ function workoutApp() {
         showSaveTemplateModal: false,
         showTemplatesModal: false,
         templateName: '',
+        isListening: false,
+        voiceTranscript: '',
+        voiceFallback: false,
+        voiceSupported: false,
+        voiceOutputEnabled: true,
 
         // Initialize
         async init() {
+            this.voiceSupported = VoiceInput.init();
+            VoiceInput.onResult = (transcript) => this.handleVoiceResult(transcript);
+            VoiceInput.onError = (error) => this.handleVoiceError(error);
+            VoiceOutput.init(); // Initialize voice output
             await this.loadExercises();
             await this.loadCurrentWorkout();
         },
@@ -107,12 +116,26 @@ function workoutApp() {
         async logSet() {
             if (!this.currentWorkout) return;
 
+            // Client-side validation
+            const weight = parseFloat(this.setForm.weight);
+            const reps = parseInt(this.setForm.reps);
+
+            if (!this.setForm.weight || isNaN(weight) || weight <= 0) {
+                this.showStatus('Please enter a valid weight', 'error');
+                return;
+            }
+
+            if (!this.setForm.reps || isNaN(reps) || reps <= 0) {
+                this.showStatus('Please enter valid reps', 'error');
+                return;
+            }
+
             try {
                 await API.emitEvent('SetLogged', {
                     workout_id: this.currentWorkout.id,
                     exercise_id: this.selectedExerciseId,
-                    weight: parseFloat(this.setForm.weight),
-                    reps: parseInt(this.setForm.reps),
+                    weight: weight,
+                    reps: reps,
                     unit: this.setForm.unit
                 });
                 this.showSetLogger = false;
@@ -292,6 +315,100 @@ function workoutApp() {
             } catch (error) {
                 console.error('Failed to start from template:', error);
                 this.showStatus('Failed to start from template', 'error');
+            }
+        },
+
+        // Voice Methods
+        toggleVoice() {
+            if (this.isListening) {
+                VoiceInput.stop();
+                this.isListening = false;
+            } else {
+                if (VoiceInput.start()) {
+                    this.isListening = true;
+                    this.voiceTranscript = '';
+                    this.voiceFallback = false;
+                } else {
+                    this.showStatus('Voice not supported in this browser', 'error');
+                }
+            }
+        },
+
+        async handleVoiceResult(transcript) {
+            this.isListening = false;
+            this.voiceTranscript = transcript;
+
+            try {
+                const response = await fetch('/api/voice/process', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({transcript})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    this.showStatus(result.message, 'success');
+
+                    // Speak the response
+                    if (this.voiceOutputEnabled && VoiceOutput.isSupported()) {
+                        VoiceOutput.speak(result.message);
+                    }
+
+                    this.voiceTranscript = '';
+                    await this.loadCurrentWorkout();
+                } else if (result.fallback) {
+                    this.voiceFallback = true;
+                    const errorMsg = 'Could not process. Please try again or enter manually.';
+                    this.showStatus(errorMsg, 'error');
+
+                    if (this.voiceOutputEnabled && VoiceOutput.isSupported()) {
+                        VoiceOutput.speak('Could not process');
+                    }
+                } else {
+                    this.showStatus(result.message, 'error');
+
+                    if (this.voiceOutputEnabled && VoiceOutput.isSupported()) {
+                        VoiceOutput.speak('Error: ' + result.message);
+                    }
+                }
+            } catch (error) {
+                const errorMsg = 'Failed to process voice command';
+                this.showStatus(errorMsg, 'error');
+                this.voiceFallback = true;
+
+                if (this.voiceOutputEnabled && VoiceOutput.isSupported()) {
+                    VoiceOutput.speak(errorMsg);
+                }
+            }
+        },
+
+        handleVoiceError(error) {
+            this.isListening = false;
+            this.showStatus('Voice error: ' + error, 'error');
+        },
+
+        retryVoice() {
+            this.voiceTranscript = '';
+            this.voiceFallback = false;
+            this.toggleVoice();
+        },
+
+        clearVoice() {
+            this.voiceTranscript = '';
+            this.voiceFallback = false;
+        },
+
+        toggleVoiceOutput() {
+            this.voiceOutputEnabled = !this.voiceOutputEnabled;
+            VoiceOutput.enabled = this.voiceOutputEnabled;
+
+            const status = this.voiceOutputEnabled ? 'Voice output enabled' : 'Voice output disabled';
+            this.showStatus(status, 'success');
+
+            // Announce the change
+            if (this.voiceOutputEnabled && VoiceOutput.isSupported()) {
+                VoiceOutput.speak(status);
             }
         }
     };

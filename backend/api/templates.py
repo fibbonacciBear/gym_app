@@ -47,7 +47,11 @@ async def create_template(request: CreateTemplateRequest):
             "default"
         )
         templates = get_projection("workout_templates", "default") or []
-        return next(t for t in templates if t["id"] == template_id)
+        created = next((t for t in templates if t["id"] == template_id), None)
+        if not created:
+            # Defensive guard: should not happen because emit_event is transactional
+            raise HTTPException(status_code=500, detail="Template was created but not found")
+        return created
     except ConcurrencyConflictError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:

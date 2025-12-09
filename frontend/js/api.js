@@ -20,8 +20,17 @@ const API = {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to emit event');
+            // Read response body as text first
+            const text = await response.text();
+
+            // Try to parse as JSON
+            try {
+                const error = JSON.parse(text);
+                throw new Error(error.detail || 'Failed to emit event');
+            } catch (e) {
+                // Response is not JSON (e.g., HTML 500 page)
+                throw new Error(`Server error (${response.status}): ${text.substring(0, 100)}`);
+            }
         }
 
         return response.json();

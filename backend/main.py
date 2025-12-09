@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pathlib import Path
+from pydantic import ValidationError
 
 from backend.config import BASE_DIR
 from backend.database import init_database, load_default_exercises, get_exercises
@@ -16,6 +17,7 @@ from backend.events import emit_event, ConcurrencyConflictError
 from backend.database import get_projection, get_events
 from backend.api.history import router as history_router
 from backend.api.templates import router as templates_router
+from backend.api.voice import router as voice_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -27,6 +29,7 @@ app = FastAPI(
 # Include routers
 app.include_router(history_router)
 app.include_router(templates_router)
+app.include_router(voice_router)
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -60,8 +63,11 @@ async def emit_event_endpoint(request: EmitEventRequest):
     except ConcurrencyConflictError as e:
         # Database lock conflict - return 409 Conflict so client can retry
         raise HTTPException(status_code=409, detail=str(e))
+    except ValidationError as e:
+        # Pydantic validation error - return 422 Unprocessable Entity
+        raise HTTPException(status_code=422, detail=str(e))
     except ValueError as e:
-        # Validation error - return 400 Bad Request
+        # Business logic validation error - return 400 Bad Request
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         # Unexpected error - return 500 Internal Server Error

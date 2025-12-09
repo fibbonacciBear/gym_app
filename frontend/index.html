@@ -403,6 +403,48 @@
             </div>
         </div>
 
+        <!-- Voice Button (floating) -->
+        <button
+            x-show="currentWorkout && voiceSupported"
+            @click="toggleVoice()"
+            :class="{
+                'bg-red-600 animate-pulse': isListening,
+                'bg-blue-600 hover:bg-blue-700': !isListening
+            }"
+            class="fixed bottom-24 right-4 w-16 h-16 rounded-full flex items-center justify-center text-2xl shadow-lg z-40"
+        >
+            🎤
+        </button>
+
+        <!-- Voice Output Toggle (floating) -->
+        <button
+            x-show="currentWorkout && voiceSupported"
+            @click="toggleVoiceOutput()"
+            :class="{
+                'bg-green-600': voiceOutputEnabled,
+                'bg-gray-600': !voiceOutputEnabled
+            }"
+            class="fixed bottom-24 right-24 w-12 h-12 rounded-full flex items-center justify-center text-xl shadow-lg z-40 hover:opacity-80"
+            :title="voiceOutputEnabled ? 'Voice output enabled' : 'Voice output disabled'"
+        >
+            <span x-show="voiceOutputEnabled">🔊</span>
+            <span x-show="!voiceOutputEnabled">🔇</span>
+        </button>
+
+        <!-- Voice Feedback -->
+        <div
+            x-show="voiceTranscript"
+            x-transition
+            class="fixed bottom-44 left-4 right-4 bg-gray-800 rounded-xl p-4 z-40 shadow-lg"
+        >
+            <p class="text-gray-400 text-sm">Heard:</p>
+            <p class="font-semibold" x-text="voiceTranscript"></p>
+            <div class="flex gap-2 mt-2" x-show="voiceFallback">
+                <button @click="retryVoice()" class="flex-1 bg-blue-600 py-2 rounded-lg">🎤 Retry</button>
+                <button @click="clearVoice()" class="flex-1 bg-gray-600 py-2 rounded-lg">✕ Cancel</button>
+            </div>
+        </div>
+
         <!-- Status Message -->
         <div
             x-show="statusMessage"
@@ -416,6 +458,7 @@
     </div>
 
     <script src="/js/api.js"></script>
+    <script src="/js/voice.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>
