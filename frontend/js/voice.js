@@ -6,6 +6,7 @@ const VoiceInput = {
     isListening: false,
     onResult: null,
     onError: null,
+    onInterim: null,
 
     init() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -16,22 +17,22 @@ const VoiceInput = {
         }
 
         this.recognition = new SpeechRecognition();
-        this.recognition.continuous = false;
-        this.recognition.interimResults = false;
+        this.recognition.continuous = true;  // Keep listening until user stops or speech detected
+        this.recognition.interimResults = true;
         this.recognition.lang = 'en-US';
+        this.recognition.maxAlternatives = 1;
 
         this.recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            if (this.onResult) {
-                this.onResult(transcript);
-            }
-        };
+            const result = event.results[event.results.length - 1];
+            const transcript = result[0].transcript;
 
-        this.recognition.onerror = (event) => {
-            console.error('Speech recognition error:', event.error);
-            this.isListening = false;
-            if (this.onError) {
-                this.onError(event.error);
+            if (result.isFinal && this.onResult) {
+                // Got final result - stop listening and process
+                this.recognition.stop();
+                this.isListening = false;
+                this.onResult(transcript);
+            } else if (this.onInterim) {
+                this.onInterim(transcript);
             }
         };
 
@@ -39,14 +40,41 @@ const VoiceInput = {
             this.isListening = false;
         };
 
+        this.recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+
+            // For no-speech in continuous mode, just keep listening
+            if (event.error === 'no-speech') {
+                return;
+            }
+
+            this.isListening = false;
+
+            // Handle specific errors with better messages
+            let errorMessage = event.error;
+            if (event.error === 'audio-capture') {
+                errorMessage = 'Microphone not available. Check your microphone settings.';
+            } else if (event.error === 'not-allowed') {
+                errorMessage = 'Microphone access denied. Please allow microphone access.';
+            }
+
+            if (this.onError) {
+                this.onError(errorMessage);
+            }
+        };
+
         return true;
     },
 
     start() {
-        if (!this.recognition) {
-            if (!this.init()) {
-                return false;
-            }
+        // Cancel any ongoing speech synthesis to avoid mic conflicts
+        if (VoiceOutput && VoiceOutput.synthesis) {
+            VoiceOutput.synthesis.cancel();
+        }
+
+        // Re-initialize recognition each time to avoid stale state
+        if (!this.init()) {
+            return false;
         }
 
         try {

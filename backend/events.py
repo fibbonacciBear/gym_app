@@ -368,6 +368,7 @@ def update_projections(
         original_event_id = payload.get("original_event_id")
 
         # Find and remove the set with this event_id
+        set_removed = False
         for exercise in current["exercises"]:
             original_length = len(exercise["sets"])
             exercise["sets"] = [s for s in exercise["sets"] if s.get("event_id") != original_event_id]
@@ -375,7 +376,12 @@ def update_projections(
             # If we removed a set, update the projection
             if len(exercise["sets"]) < original_length:
                 _set_projection("current_workout", current)
+                set_removed = True
                 break
+
+        # Defensive: if nothing was removed, abort the event
+        if not set_removed:
+            raise ValueError(f"Set with event_id {original_event_id} not found during deletion")
 
     elif event_type == EventType.SET_MODIFIED:
         # Modify set in current workout (preconditions already validated)
@@ -403,6 +409,10 @@ def update_projections(
             if set_modified:
                 break
 
+        # Defensive: if nothing was modified, abort the event
+        if not set_modified:
+            raise ValueError(f"Set with event_id {original_event_id} not found during modification")
+
     elif event_type == EventType.TEMPLATE_CREATED:
         # Add template to workout_templates projection
         templates = _get_projection("workout_templates") or []
@@ -423,6 +433,7 @@ def update_projections(
         templates = _get_projection("workout_templates") or []
         template_id = payload.get("template_id")
 
+        template_found = False
         for template in templates:
             if template["id"] == template_id:
                 if payload.get("name") is not None:
@@ -431,7 +442,11 @@ def update_projections(
                     template["exercise_ids"] = payload.get("exercise_ids")
                 template["updated_at"] = timestamp
                 _set_projection("workout_templates", templates)
+                template_found = True
                 break
+
+        if not template_found:
+            raise ValueError(f"Template {template_id} not found during update")
 
     elif event_type == EventType.TEMPLATE_DELETED:
         # Remove template from workout_templates projection
@@ -443,5 +458,7 @@ def update_projections(
 
         if len(templates) < original_length:
             _set_projection("workout_templates", templates)
+        else:
+            raise ValueError(f"Template {template_id} not found during delete")
 
     return derived if derived else None

@@ -31,6 +31,18 @@ SYSTEM_PROMPT = """You are a voice assistant for a gym workout tracker. Users sp
 - Exercises in workout: {exercise_list}
 - User's preferred unit: {preferred_unit}
 
+## Available Exercises in Library
+{available_exercises}
+
+**IMPORTANT:** When the user mentions an exercise, you MUST map it to an exercise ID from the library above. Use fuzzy matching:
+- "bench" → "bench-press"
+- "pull ups" or "pullups" → "pull-up"
+- "lat pulldown" → "lat-pulldown"
+- "BP" → "bench-press"
+- "OHP" → "overhead-press"
+
+If the user says an exercise not in the library, ask for clarification or suggest the closest match.
+
 ## Available Tools
 1. emit(event_type, payload) - Create a workout event
 2. query(projection_key) - Get current state
@@ -43,16 +55,26 @@ SYSTEM_PROMPT = """You are a voice assistant for a gym workout tracker. Users sp
 
 ## Guidelines
 1. For logging sets: emit SetLogged with workout_id (from context), exercise_id, weight, reps, unit
-2. If user doesn't name exercise, use focus_exercise
-3. For "same as last time": query exercise_history first
-4. For "add 5 pounds": query history, calculate new weight
-5. Always include workout_id in SetLogged events - get it from Active workout context
-6. Be concise
+2. **ALWAYS use exact exercise_id from Available Exercises list above**
+3. If user doesn't name exercise, use focus_exercise
+4. For "same as last time": query exercise_history first
+5. For "add 5 pounds": query history, calculate new weight
+6. Always include workout_id in SetLogged events - get it from Active workout context
+
+## Response Style
+- Be extremely concise. Your responses are read aloud via text-to-speech.
+- NEVER mention technical details like "exercise ID", "library", "database", "emit", "payload", etc.
+- Just confirm the action naturally, like a gym buddy would.
+- Good: "Got it, 100kg for 8 reps on bench press."
+- Good: "Logged barbell row, 80kg, 10 reps."
+- Good: "Workout complete! Nice session."
+- Bad: "I'll use the bench-press exercise ID from our library."
+- Bad: "Emitting a SetLogged event with the payload..."
 
 ## Examples
-- "Bench press 100 for 8" → emit SetLogged {{exercise_id: "bench-press", weight: 100, reps: 8, unit: "kg"}}
-- "100 for 8" (with focus) → emit SetLogged {{exercise_id: <focus>, weight: 100, reps: 8, unit: "kg"}}
-- "I'm done" → emit WorkoutCompleted
+- "Bench press 100 for 8" → emit SetLogged, respond: "Got it, bench press 100 for 8."
+- "100 for 8" (with focus) → emit SetLogged, respond: "Logged 100 for 8."
+- "I'm done" → emit WorkoutCompleted, respond: "Workout complete!"
 """
 
 # Define tools based on client type
@@ -139,6 +161,15 @@ def build_context(user_id: str = "default") -> Dict[str, str]:
     current = get_projection("current_workout", user_id)
     exercises = get_exercises(user_id)
 
+    # Format exercise library for LLM
+    if exercises:
+        exercise_library = "\n".join([
+            f"- {ex['id']}: {ex['name']}"
+            for ex in exercises
+        ])
+    else:
+        exercise_library = "No exercises in library yet."
+
     if current:
         workout_status = f"Active (ID: {current['id'][:8]})"
         workout_id = current['id']
@@ -155,6 +186,7 @@ def build_context(user_id: str = "default") -> Dict[str, str]:
         "workout_id": workout_id,
         "focus_exercise": focus,
         "exercise_list": ex_list or "None",
+        "available_exercises": exercise_library,
         "preferred_unit": "kg"  # TODO: Get from user settings
     }
 

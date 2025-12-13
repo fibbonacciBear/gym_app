@@ -42,6 +42,27 @@ async def process_voice(request: VoiceRequest):
 
         try:
             event_type = EventType(event_type_str)
+
+            # For SetLogged, auto-add exercise if not in workout (with proper event)
+            if event_type == EventType.SET_LOGGED:
+                current = get_projection("current_workout", "default")
+                if current:
+                    exercise_id = payload.get("exercise_id")
+                    exercise_exists = any(
+                        ex["exercise_id"] == exercise_id
+                        for ex in current.get("exercises", [])
+                    )
+                    if not exercise_exists:
+                        # Emit ExerciseAdded event first
+                        emit_event(
+                            EventType.EXERCISE_ADDED,
+                            {
+                                "workout_id": current["id"],
+                                "exercise_id": exercise_id
+                            },
+                            "default"
+                        )
+
             event_record, derived = emit_event(event_type, payload, "default")
 
             return VoiceResponse(
