@@ -38,25 +38,49 @@
         <!-- Workout Tab Content -->
         <div x-show="activeTab === 'workout'">
 
-        <!-- No Active Workout -->
-        <div x-show="!currentWorkout" class="text-center space-y-4">
-            <p class="text-gray-400 mb-6">No workout in progress</p>
+        <!-- No Active Workout - 3-Button Home Screen -->
+        <div x-show="!currentWorkout && !showTemplateEditor" class="space-y-4">
+
+            <!-- Primary CTA: Today's Workout -->
             <button
-                @click="startWorkout()"
-                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-xl text-xl transition-colors"
+                @click="startTodaysWorkout()"
+                class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-5 px-6 rounded-xl transition-colors"
             >
-                Start Workout
+                <div class="flex items-center justify-center gap-3">
+                    <span class="text-2xl">📅</span>
+                    <div class="text-left">
+                        <p class="text-lg">Today's Workout</p>
+                        <p class="text-sm text-green-200 font-normal" x-text="getTodaysWorkoutSubtitle()"></p>
+                    </div>
+                </div>
             </button>
+
+            <!-- Secondary: Plan Builder -->
             <button
-                @click="showTemplatesModal = true; loadTemplates()"
-                class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+                @click="openPlanBuilder()"
+                class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-xl transition-colors"
             >
-                Start from Template
+                <div class="flex items-center justify-center gap-3">
+                    <span class="text-xl">🛠️</span>
+                    <span>Plan Builder</span>
+                </div>
             </button>
+
+            <!-- Tertiary: Quick Start -->
+            <button
+                @click="startQuickWorkout()"
+                class="w-full bg-gray-800 hover:bg-gray-700 text-white py-4 px-6 rounded-xl border border-gray-600 transition-colors"
+            >
+                <div class="flex items-center justify-center gap-3">
+                    <span class="text-xl">⚡</span>
+                    <span>Quick Start</span>
+                </div>
+            </button>
+
         </div>
 
         <!-- Active Workout -->
-        <div x-show="currentWorkout" class="space-y-6">
+        <div x-show="currentWorkout && !showTemplateEditor" class="space-y-6">
 
             <!-- Workout Header -->
             <div class="bg-gray-800 rounded-xl p-4">
@@ -65,7 +89,18 @@
                         <h2 class="text-lg font-semibold">Current Workout</h2>
                         <p class="text-gray-400 text-sm" x-text="currentWorkout?.id?.slice(0, 8)"></p>
                     </div>
-                    <span class="bg-green-600 px-3 py-1 rounded-full text-sm">Active</span>
+                    <div class="flex items-center gap-2">
+                        <!-- Card Mode Toggle -->
+                        <button
+                            x-show="voiceSupported"
+                            @click="toggleCardMode()"
+                            class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-full text-sm transition-colors"
+                            title="Voice Card Mode"
+                        >
+                            🎤 Card
+                        </button>
+                        <span class="bg-green-600 px-3 py-1 rounded-full text-sm">Active</span>
+                    </div>
                 </div>
             </div>
 
@@ -130,15 +165,6 @@
                     No exercises added yet
                 </div>
             </div>
-
-            <!-- Save as Template Button -->
-            <button
-                x-show="currentWorkout && currentWorkout.exercises && currentWorkout.exercises.length > 0"
-                @click="showSaveTemplateModal = true"
-                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition-colors"
-            >
-                Save as Template
-            </button>
 
             <!-- Action Buttons -->
             <div class="grid grid-cols-2 gap-4">
@@ -453,6 +479,524 @@
             :class="{'border-green-500 border': statusType === 'success', 'border-red-500 border': statusType === 'error'}"
         >
             <p x-text="statusMessage"></p>
+        </div>
+
+        <!-- Plan Builder Modal -->
+        <div
+            x-show="showPlanBuilder"
+            @click.self="showPlanBuilder = false"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
+        >
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-bold">Plan Builder</h3>
+                    <button @click="showPlanBuilder = false" class="text-gray-400 hover:text-white">✕</button>
+                </div>
+
+                <div class="space-y-3">
+                    <!-- Create New Template -->
+                    <button
+                        @click="openTemplateEditor(null)"
+                        class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-6 rounded-xl transition-colors"
+                    >
+                        <div class="flex items-center gap-3">
+                            <span class="text-xl">➕</span>
+                            <div class="text-left">
+                                <p>Create New Template</p>
+                                <p class="text-sm text-purple-200 font-normal">Start from scratch</p>
+                            </div>
+                        </div>
+                    </button>
+
+                    <!-- Import from History -->
+                    <button
+                        @click="showHistoryImport = true; loadHistory()"
+                        class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-xl transition-colors"
+                    >
+                        <div class="flex items-center gap-3">
+                            <span class="text-xl">📋</span>
+                            <div class="text-left">
+                                <p>Import from History</p>
+                                <p class="text-sm text-gray-400 font-normal">Use a past workout as template</p>
+                            </div>
+                        </div>
+                    </button>
+
+                    <!-- Edit Existing Templates -->
+                    <template x-if="templates.length > 0">
+                        <div class="pt-4 border-t border-gray-700">
+                            <p class="text-gray-400 text-sm mb-3">Edit Existing Templates</p>
+                            <div class="space-y-2">
+                                <template x-for="template in templates" :key="template.id">
+                                    <div
+                                        @click="openTemplateEditor(template)"
+                                        class="bg-gray-700 rounded-lg p-3 cursor-pointer hover:bg-gray-600 transition-colors flex justify-between items-center"
+                                    >
+                                        <div>
+                                            <p class="font-semibold" x-text="template.name"></p>
+                                            <p class="text-gray-400 text-sm">
+                                                <span x-text="template.exercises?.length || template.exercise_ids?.length || 0"></span> exercises
+                                            </p>
+                                        </div>
+                                        <span class="text-gray-400">✏️</span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Import Modal -->
+        <div
+            x-show="showHistoryImport"
+            @click.self="showHistoryImport = false"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50"
+        >
+            <div class="bg-gray-800 rounded-xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">Import from History</h3>
+                    <button @click="showHistoryImport = false" class="text-gray-400 hover:text-white">✕</button>
+                </div>
+
+                <template x-if="workoutHistory.length === 0">
+                    <p class="text-gray-400 text-center py-8">No workouts in history yet.</p>
+                </template>
+
+                <div class="space-y-2">
+                    <template x-for="workout in workoutHistory" :key="workout.id">
+                        <div
+                            @click="importWorkoutAsTemplate(workout)"
+                            class="bg-gray-700 rounded-lg p-4 cursor-pointer hover:bg-gray-600 transition-colors"
+                        >
+                            <p class="font-semibold" x-text="formatDate(workout.completed_at)"></p>
+                            <p class="text-gray-400 text-sm">
+                                <span x-text="workout.stats.exercise_count"></span> exercises ·
+                                <span x-text="workout.stats.total_sets"></span> sets
+                            </p>
+                            <p class="text-gray-500 text-xs mt-1" x-text="workout.exercises.map(e => getExerciseName(e.exercise_id)).join(', ')"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Template Editor (Full Screen - like Quick Start workout) -->
+        <div x-show="showTemplateEditor" class="space-y-6">
+
+            <!-- Template Header -->
+            <div class="bg-gray-800 rounded-xl p-4">
+                <div class="flex justify-between items-center">
+                    <div class="flex-1 mr-4">
+                        <input
+                            type="text"
+                            x-model="templateEditorData.name"
+                            placeholder="Template Name (e.g., Push Day A)"
+                            class="w-full bg-transparent text-lg font-semibold text-white placeholder-gray-500 focus:outline-none"
+                        >
+                        <p class="text-gray-400 text-sm mt-1">
+                            <span x-text="templateEditorData.exercises.length"></span> exercises
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <!-- Voice Card Mode Toggle for Templates -->
+                        <button
+                            x-show="voiceSupported"
+                            @click="toggleTemplatePlanMode()"
+                            class="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 rounded-full text-sm transition-colors"
+                            title="Voice Plan Mode"
+                        >
+                            🎤 Voice
+                        </button>
+                        <span class="bg-purple-600 px-3 py-1 rounded-full text-sm">Planning</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Exercise Button -->
+            <div class="flex justify-center">
+                <button
+                    @click="showExerciseSelectorForTemplate = true"
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+                >
+                    + Add Exercise
+                </button>
+            </div>
+
+            <!-- Exercise List (like active workout) -->
+            <div class="space-y-4">
+                <template x-for="(exercise, index) in templateEditorData.exercises" :key="index">
+                    <div class="bg-gray-800 rounded-xl p-4">
+                        <!-- Exercise Header -->
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-semibold" x-text="getExerciseName(exercise.exercise_id)"></h3>
+                            <button
+                                @click="removeExerciseFromTemplate(index)"
+                                class="text-red-400 hover:text-red-300 text-sm px-2"
+                            >
+                                ✕ Remove
+                            </button>
+                        </div>
+
+                        <!-- Target Values (inline like set display) -->
+                        <div class="bg-gray-700 rounded-lg p-3">
+                            <div class="grid grid-cols-3 gap-3">
+                                <div class="text-center">
+                                    <label class="block text-xs text-gray-400 mb-1">Sets</label>
+                                    <input
+                                        type="number"
+                                        x-model.number="exercise.target_sets"
+                                        placeholder="–"
+                                        min="1"
+                                        class="w-full bg-gray-600 rounded-lg px-2 py-2 text-center font-mono text-lg"
+                                    >
+                                </div>
+                                <div class="text-center">
+                                    <label class="block text-xs text-gray-400 mb-1">Reps</label>
+                                    <input
+                                        type="number"
+                                        x-model.number="exercise.target_reps"
+                                        placeholder="–"
+                                        min="1"
+                                        class="w-full bg-gray-600 rounded-lg px-2 py-2 text-center font-mono text-lg"
+                                    >
+                                </div>
+                                <div class="text-center">
+                                    <label class="block text-xs text-gray-400 mb-1">Weight</label>
+                                    <div class="flex items-center gap-1">
+                                        <input
+                                            type="number"
+                                            x-model.number="exercise.target_weight"
+                                            placeholder="–"
+                                            min="0"
+                                            step="0.5"
+                                            class="w-full bg-gray-600 rounded-lg px-2 py-2 text-center font-mono text-lg"
+                                        >
+                                        <select
+                                            x-model="exercise.target_unit"
+                                            class="bg-gray-600 rounded-lg px-1 py-2 text-sm"
+                                        >
+                                            <option value="kg">kg</option>
+                                            <option value="lb">lb</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div x-show="templateEditorData.exercises.length === 0" class="text-gray-500 text-center py-8">
+                    No exercises added yet. Use voice or tap the button above.
+                </div>
+            </div>
+
+            <!-- Action Buttons (like active workout) -->
+            <div class="grid grid-cols-2 gap-4">
+                <button
+                    @click="cancelTemplateEditor()"
+                    class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+                >
+                    <span x-show="editingTemplate">Cancel</span>
+                    <span x-show="!editingTemplate">Back</span>
+                </button>
+                <button
+                    @click="saveTemplate()"
+                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition-colors"
+                >
+                    Save Template
+                </button>
+            </div>
+
+            <!-- Delete Button (for editing only) -->
+            <div x-show="editingTemplate" class="flex justify-center">
+                <button
+                    @click="deleteTemplate(editingTemplate.id)"
+                    class="text-red-400 hover:text-red-300 text-sm"
+                >
+                    Delete Template
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Template Voice Plan Mode (Card Mode for Templates) -->
+        <div
+            x-show="templatePlanMode && showTemplateEditor"
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            class="fixed inset-0 bg-gray-950 z-[100] flex flex-col"
+            @click="templatePlanModeTapToSpeak()"
+        >
+            <!-- Header -->
+            <div class="flex justify-between items-center p-4" @click.stop>
+                <div class="text-gray-500 text-sm">
+                    <span x-text="templateEditorData.exercises.length"></span> exercises planned
+                </div>
+                <button
+                    @click="exitTemplatePlanMode()"
+                    class="text-gray-400 hover:text-white px-4 py-2 rounded-lg bg-gray-800"
+                >
+                    Exit Voice Mode
+                </button>
+            </div>
+
+            <!-- Main Content -->
+            <div class="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
+                <!-- Template Name -->
+                <div class="text-center mb-8">
+                    <p class="text-gray-500 text-lg mb-2">Building Template</p>
+                    <h1
+                        class="text-3xl md:text-4xl font-bold text-white tracking-tight"
+                        x-text="templateEditorData.name || 'Untitled Template'"
+                    ></h1>
+                </div>
+
+                <!-- Last Added Exercise -->
+                <div class="text-center mb-12">
+                    <template x-if="templateEditorData.exercises.length > 0">
+                        <div>
+                            <p class="text-gray-500 text-sm mb-2">Last Added</p>
+                            <p class="text-4xl md:text-5xl font-bold text-purple-400">
+                                <span x-text="getExerciseName(templateEditorData.exercises[templateEditorData.exercises.length - 1].exercise_id)"></span>
+                            </p>
+                            <p class="text-2xl text-gray-400 mt-2">
+                                <span x-text="templateEditorData.exercises[templateEditorData.exercises.length - 1].target_sets || '–'"></span> sets ×
+                                <span x-text="templateEditorData.exercises[templateEditorData.exercises.length - 1].target_reps || '–'"></span> reps
+                                <template x-if="templateEditorData.exercises[templateEditorData.exercises.length - 1].target_weight">
+                                    <span>
+                                        @ <span x-text="templateEditorData.exercises[templateEditorData.exercises.length - 1].target_weight"></span><span x-text="templateEditorData.exercises[templateEditorData.exercises.length - 1].target_unit"></span>
+                                    </span>
+                                </template>
+                            </p>
+                        </div>
+                    </template>
+                    <template x-if="templateEditorData.exercises.length === 0">
+                        <p class="text-2xl text-gray-500">No exercises yet</p>
+                    </template>
+                </div>
+
+                <!-- Voice Button Area -->
+                <div class="text-center">
+                    <div
+                        class="w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mx-auto mb-4 transition-all duration-200"
+                        :class="{
+                            'bg-red-600 card-mode-pulse': isListening,
+                            'bg-purple-600': !isListening
+                        }"
+                    >
+                        <span class="text-5xl md:text-6xl">🎤</span>
+                    </div>
+                    <p class="text-gray-400 text-lg" x-text="isListening ? 'Listening...' : 'Tap anywhere to speak'"></p>
+                    <p class="text-gray-600 text-sm mt-2">Say: "Add bench press, 4 sets of 8 at 100kg"</p>
+                </div>
+            </div>
+
+            <!-- Confirmation Toast -->
+            <div
+                x-show="templatePlanModeConfirmation"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 transform translate-y-4"
+                x-transition:enter-end="opacity-100 transform translate-y-0"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                class="absolute bottom-24 left-4 right-4 rounded-2xl p-6 text-center text-xl font-semibold"
+                :class="{
+                    'bg-green-600': templatePlanModeConfirmationType === 'success',
+                    'bg-red-600': templatePlanModeConfirmationType === 'error'
+                }"
+                @click.stop
+            >
+                <span x-text="templatePlanModeConfirmation"></span>
+            </div>
+
+            <!-- Transcript Display (fallback) -->
+            <div
+                x-show="voiceTranscript && voiceFallback"
+                x-transition
+                class="absolute bottom-40 left-4 right-4 bg-gray-800 rounded-xl p-4"
+                @click.stop
+            >
+                <p class="text-gray-400 text-sm">Heard:</p>
+                <p class="font-semibold text-lg" x-text="voiceTranscript"></p>
+                <div class="flex gap-2 mt-3">
+                    <button @click="templatePlanModeTapToSpeak()" class="flex-1 bg-purple-600 py-3 rounded-lg font-semibold">🎤 Retry</button>
+                    <button @click="voiceTranscript = ''; voiceFallback = false;" class="flex-1 bg-gray-600 py-3 rounded-lg">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Bottom Action Bar -->
+            <div class="p-4 flex gap-4" @click.stop>
+                <button
+                    @click="exitTemplatePlanMode()"
+                    class="flex-1 bg-gray-600 hover:bg-gray-500 text-white font-bold py-4 rounded-xl transition-colors"
+                >
+                    Back to Editor
+                </button>
+                <button
+                    @click="saveTemplate(); exitTemplatePlanMode();"
+                    class="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl transition-colors"
+                >
+                    Save Template
+                </button>
+            </div>
+        </div>
+
+        <!-- Exercise Selector for Template Editor -->
+        <div
+            x-show="showExerciseSelectorForTemplate"
+            @click.self="showExerciseSelectorForTemplate = false"
+            x-transition
+            class="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[60]"
+        >
+            <div class="bg-gray-800 rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">Add Exercise to Template</h3>
+                    <button @click="showExerciseSelectorForTemplate = false" class="text-gray-400 hover:text-white">✕</button>
+                </div>
+                <div class="flex-1 overflow-y-auto p-4 space-y-2">
+                    <template x-for="exercise in allExercises" :key="exercise.id">
+                        <button
+                            @click="addExerciseToTemplate(exercise.id)"
+                            class="w-full bg-gray-700 hover:bg-gray-600 rounded-lg p-3 text-left transition-colors"
+                        >
+                            <div class="font-semibold" x-text="exercise.name"></div>
+                            <div class="text-sm text-gray-400" x-text="exercise.category"></div>
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card Mode Overlay -->
+        <div
+            x-show="cardMode && currentWorkout"
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            class="fixed inset-0 bg-gray-950 z-[100] flex flex-col card-mode-overlay"
+            @click="cardModeTapToSpeak()"
+        >
+            <!-- Card Mode Header -->
+            <div class="flex justify-between items-center p-4" @click.stop>
+                <div class="text-gray-500 text-sm">
+                    <span x-text="getCardTotalSets()"></span> sets today
+                </div>
+                <button
+                    @click="exitCardMode()"
+                    class="text-gray-400 hover:text-white px-4 py-2 rounded-lg bg-gray-800"
+                >
+                    Exit Card Mode
+                </button>
+            </div>
+
+            <!-- Main Card Content -->
+            <div class="flex-1 flex flex-col items-center justify-center px-6 -mt-16">
+                <!-- Exercise Name -->
+                <div class="text-center mb-8">
+                    <p class="text-gray-500 text-lg mb-2">Current Exercise</p>
+                    <h1
+                        class="text-4xl md:text-5xl font-bold text-white tracking-tight"
+                        x-text="getCardFocusExercise() ? getExerciseName(getCardFocusExercise().exercise_id) : 'No Exercise'"
+                    ></h1>
+                </div>
+
+                <!-- Last Set Display -->
+                <div class="text-center mb-12">
+                    <template x-if="getCardLastSet()">
+                        <div>
+                            <p class="text-gray-500 text-sm mb-2">Last Set</p>
+                            <p class="text-6xl md:text-7xl font-mono font-bold text-green-400">
+                                <span x-text="getCardLastSet().weight"></span><span class="text-4xl" x-text="getCardLastSet().unit"></span>
+                                <span class="text-gray-500 mx-2">×</span>
+                                <span x-text="getCardLastSet().reps"></span>
+                            </p>
+                        </div>
+                    </template>
+                    <template x-if="!getCardLastSet() && getCardFocusExercise()">
+                        <p class="text-2xl text-gray-500">No sets yet</p>
+                    </template>
+                    <template x-if="!getCardFocusExercise()">
+                        <p class="text-2xl text-gray-500">Add an exercise to start</p>
+                    </template>
+                </div>
+
+                <!-- Voice Button Area -->
+                <div class="text-center">
+                    <div
+                        class="w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center mx-auto mb-4 transition-all duration-200"
+                        :class="{
+                            'bg-red-600 card-mode-pulse': isListening,
+                            'bg-indigo-600': !isListening
+                        }"
+                    >
+                        <span class="text-5xl md:text-6xl">🎤</span>
+                    </div>
+                    <p class="text-gray-400 text-lg" x-text="isListening ? 'Listening...' : 'Tap anywhere to speak'"></p>
+                    <p class="text-gray-600 text-sm mt-2" x-text="getCardVoiceHint()"></p>
+                </div>
+            </div>
+
+            <!-- Confirmation Toast -->
+            <div
+                x-show="cardModeConfirmation"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 transform translate-y-4"
+                x-transition:enter-end="opacity-100 transform translate-y-0"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                class="absolute bottom-24 left-4 right-4 rounded-2xl p-6 text-center text-xl font-semibold"
+                :class="{
+                    'bg-green-600': cardModeConfirmationType === 'success',
+                    'bg-red-600': cardModeConfirmationType === 'error'
+                }"
+                @click.stop
+            >
+                <span x-text="cardModeConfirmation"></span>
+            </div>
+
+            <!-- Transcript Display (when fallback) -->
+            <div
+                x-show="voiceTranscript && voiceFallback"
+                x-transition
+                class="absolute bottom-40 left-4 right-4 bg-gray-800 rounded-xl p-4"
+                @click.stop
+            >
+                <p class="text-gray-400 text-sm">Heard:</p>
+                <p class="font-semibold text-lg" x-text="voiceTranscript"></p>
+                <div class="flex gap-2 mt-3">
+                    <button @click="cardModeTapToSpeak()" class="flex-1 bg-indigo-600 py-3 rounded-lg font-semibold">🎤 Retry</button>
+                    <button @click="voiceTranscript = ''; voiceFallback = false;" class="flex-1 bg-gray-600 py-3 rounded-lg">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Bottom Action Bar -->
+            <div class="p-4 flex gap-4" @click.stop>
+                <button
+                    @click="discardWorkout(); exitCardMode();"
+                    class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition-colors"
+                >
+                    Discard
+                </button>
+                <button
+                    @click="finishWorkout(); exitCardMode();"
+                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-colors"
+                >
+                    Finish
+                </button>
+            </div>
         </div>
 
     </div>

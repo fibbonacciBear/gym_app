@@ -12,6 +12,7 @@ router = APIRouter(prefix="/api/voice", tags=["voice"])
 
 class VoiceRequest(BaseModel):
     transcript: str
+    mode: Optional[str] = None  # "plan_builder" or None (workout execution)
 
 class VoiceResponse(BaseModel):
     success: bool
@@ -24,7 +25,7 @@ class VoiceResponse(BaseModel):
 @router.post("/process", response_model=VoiceResponse)
 async def process_voice(request: VoiceRequest):
     """Process a voice command transcript."""
-    result = process_voice_command(request.transcript, "default")
+    result = process_voice_command(request.transcript, "default", mode=request.mode)
 
     if not result["success"]:
         return VoiceResponse(
@@ -39,6 +40,19 @@ async def process_voice(request: VoiceRequest):
         args = result["arguments"]
         event_type_str = args["event_type"]
         payload = args["payload"]
+
+        # In plan_builder mode, return action without executing
+        # The frontend will handle adding to the template editor
+        if request.mode == "plan_builder":
+            return VoiceResponse(
+                success=True,
+                action="emit",
+                event_result={
+                    "event_type": event_type_str,
+                    "payload": payload
+                },
+                message=result.get("message") or f"Add {payload.get('exercise_id', 'exercise')}"
+            )
 
         try:
             event_type = EventType(event_type_str)
