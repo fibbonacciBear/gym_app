@@ -4,6 +4,9 @@
 # User data
 workspace/
 
+# Local database files
+data/*.db
+
 # Python cache
 __pycache__/
 *.pyc
