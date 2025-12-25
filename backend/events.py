@@ -306,6 +306,30 @@ def update_projections(
             history.insert(0, current)  # Most recent first
             _set_projection("workout_history", history)
 
+            # Update exercise history for each exercise in the workout
+            for exercise_entry in current["exercises"]:
+                if not exercise_entry["sets"]:
+                    continue  # Skip exercises with no sets
+
+                exercise_id = exercise_entry["exercise_id"]
+                exercise_history = _get_projection(f"exercise_history:{exercise_id}") or {
+                    "exercise_id": exercise_id,
+                    "sessions": []
+                }
+
+                # Add this session to history
+                session = {
+                    "workout_id": current["id"],
+                    "date": timestamp,
+                    "sets": exercise_entry["sets"]
+                }
+                exercise_history["sessions"].insert(0, session)  # Most recent first
+
+                # Keep only last 50 sessions to prevent unbounded growth
+                exercise_history["sessions"] = exercise_history["sessions"][:50]
+
+                _set_projection(f"exercise_history:{exercise_id}", exercise_history)
+
             # Set derived data
             derived["total_sets"] = total_sets
             derived["total_volume"] = total_volume_kg
@@ -346,12 +370,63 @@ def update_projections(
             # Should not happen due to preconditions, but defensive check for replay
             return derived
 
+        # Get set details
+        weight = payload.get("weight", 0)
+        reps = payload.get("reps", 0)
+        unit = payload.get("unit", "kg")
+
+        # Normalize weight to kg for PR comparison
+        weight_kg = weight if unit == "kg" else weight * 0.453592
+
+        # Check for PR (highest weight for any rep count, or highest reps at a weight)
+        pr_key = f"personal_records:{exercise_id}"
+        records = _get_projection(pr_key) or {
+            "exercise_id": exercise_id,
+            "max_weight": {"weight": 0, "weight_kg": 0, "reps": 0, "unit": "kg", "date": None},
+            "max_volume": {"weight": 0, "weight_kg": 0, "reps": 0, "unit": "kg", "date": None, "volume": 0}
+        }
+
+        is_pr = False
+        pr_type = None
+
+        # Check max weight PR (any reps)
+        if weight_kg > records["max_weight"]["weight_kg"]:
+            records["max_weight"] = {
+                "weight": weight,
+                "weight_kg": weight_kg,
+                "reps": reps,
+                "unit": unit,
+                "date": timestamp
+            }
+            is_pr = True
+            pr_type = "weight"
+
+        # Check max volume PR (weight * reps)
+        volume = weight_kg * reps
+        if volume > records["max_volume"].get("volume", 0):
+            records["max_volume"] = {
+                "weight": weight,
+                "weight_kg": weight_kg,
+                "reps": reps,
+                "unit": unit,
+                "date": timestamp,
+                "volume": volume
+            }
+            if not is_pr:  # Only set if not already a weight PR
+                is_pr = True
+                pr_type = "volume"
+
+        if is_pr:
+            _set_projection(pr_key, records)
+            derived["is_pr"] = True
+            derived["pr_type"] = pr_type
+
         # Add the set with event_id for future edits/deletes
         exercise["sets"].append({
             "event_id": event_id,
-            "weight": payload.get("weight"),
-            "reps": payload.get("reps"),
-            "unit": payload.get("unit")
+            "weight": weight,
+            "reps": reps,
+            "unit": unit
         })
 
         # Update focus
@@ -416,15 +491,66 @@ def update_projections(
     elif event_type == EventType.TEMPLATE_CREATED:
         # Add template to workout_templates projection
         templates = _get_projection("workout_templates") or []
-        template = {
-            "id": payload.get("template_id"),
-            "name": payload.get("name"),
-            "exercise_ids": payload.get("exercise_ids"),
-            "source_workout_id": payload.get("source_workout_id"),
-            "created_at": timestamp,
-            "last_used_at": None,
-            "use_count": 0
-        }
+
+        # Handle both legacy (exercise_ids) and new (exercises) format
+        exercises_data = payload.get("exercises")
+        exercise_ids = payload.get("exercise_ids")
+
+        if exercises_data:
+            # New format: full exercise specs with targets
+            exercises = []
+            legacy_exercise_ids = []
+            for ex in exercises_data:
+                # Convert TemplateExercise model to dict if needed
+                ex_dict = ex if isinstance(ex, dict) else ex.model_dump()
+                exercises.append({
+                    "exercise_id": ex_dict.get("exercise_id"),
+                    "target_sets": ex_dict.get("target_sets"),
+                    "target_reps": ex_dict.get("target_reps"),
+                    "target_weight": ex_dict.get("target_weight"),
+                    "target_unit": ex_dict.get("target_unit", "kg"),
+                    "set_type": ex_dict.get("set_type", "standard"),
+                    "rest_seconds": ex_dict.get("rest_seconds", 60),
+                    "notes": ex_dict.get("notes")
+                })
+                legacy_exercise_ids.append(ex_dict.get("exercise_id"))
+
+            template = {
+                "id": payload.get("template_id"),
+                "name": payload.get("name"),
+                "exercises": exercises,
+                "exercise_ids": legacy_exercise_ids,  # Keep for backwards compat
+                "source_workout_id": payload.get("source_workout_id"),
+                "created_at": timestamp,
+                "last_used_at": None,
+                "use_count": 0
+            }
+        elif exercise_ids:
+            # Legacy format: just exercise IDs (convert to new format)
+            exercises = [{"exercise_id": ex_id, "target_sets": None, "target_reps": None, "target_weight": None, "target_unit": "kg", "set_type": "standard", "rest_seconds": 60, "notes": None} for ex_id in exercise_ids]
+            template = {
+                "id": payload.get("template_id"),
+                "name": payload.get("name"),
+                "exercises": exercises,
+                "exercise_ids": exercise_ids,  # Keep for backwards compat
+                "source_workout_id": payload.get("source_workout_id"),
+                "created_at": timestamp,
+                "last_used_at": None,
+                "use_count": 0
+            }
+        else:
+            # Empty template
+            template = {
+                "id": payload.get("template_id"),
+                "name": payload.get("name"),
+                "exercises": [],
+                "exercise_ids": [],
+                "source_workout_id": payload.get("source_workout_id"),
+                "created_at": timestamp,
+                "last_used_at": None,
+                "use_count": 0
+            }
+
         templates.append(template)
         _set_projection("workout_templates", templates)
 
@@ -438,8 +564,34 @@ def update_projections(
             if template["id"] == template_id:
                 if payload.get("name") is not None:
                     template["name"] = payload.get("name")
-                if payload.get("exercise_ids") is not None:
-                    template["exercise_ids"] = payload.get("exercise_ids")
+
+                # Handle new exercises format
+                exercises_data = payload.get("exercises")
+                if exercises_data is not None:
+                    exercises = []
+                    legacy_exercise_ids = []
+                    for ex in exercises_data:
+                        ex_dict = ex if isinstance(ex, dict) else ex.model_dump()
+                        exercises.append({
+                            "exercise_id": ex_dict.get("exercise_id"),
+                            "target_sets": ex_dict.get("target_sets"),
+                            "target_reps": ex_dict.get("target_reps"),
+                            "target_weight": ex_dict.get("target_weight"),
+                            "target_unit": ex_dict.get("target_unit", "kg"),
+                            "set_type": ex_dict.get("set_type", "standard"),
+                            "rest_seconds": ex_dict.get("rest_seconds", 60),
+                            "notes": ex_dict.get("notes")
+                        })
+                        legacy_exercise_ids.append(ex_dict.get("exercise_id"))
+                    template["exercises"] = exercises
+                    template["exercise_ids"] = legacy_exercise_ids
+                elif payload.get("exercise_ids") is not None:
+                    # Legacy format update
+                    exercise_ids = payload.get("exercise_ids")
+                    template["exercise_ids"] = exercise_ids
+                    # Convert to new format
+                    template["exercises"] = [{"exercise_id": ex_id, "target_sets": None, "target_reps": None, "target_weight": None, "target_unit": "kg", "set_type": "standard", "rest_seconds": 60, "notes": None} for ex_id in exercise_ids]
+
                 template["updated_at"] = timestamp
                 _set_projection("workout_templates", templates)
                 template_found = True

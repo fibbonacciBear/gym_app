@@ -44,15 +44,15 @@ class ExerciseAddedPayload(BaseModel):
 class SetLoggedPayload(BaseModel):
     workout_id: str
     exercise_id: str
-    weight: float = Field(ge=0)
-    reps: int = Field(ge=0)
+    weight: float = Field(gt=0)
+    reps: int = Field(gt=0)
     unit: WeightUnit = WeightUnit.KG
 
 class SetModifiedPayload(BaseModel):
     workout_id: str
     original_event_id: str
-    weight: Optional[float] = Field(default=None, ge=0)
-    reps: Optional[int] = Field(default=None, ge=0)
+    weight: Optional[float] = Field(default=None, gt=0)
+    reps: Optional[int] = Field(default=None, gt=0)
     unit: Optional[WeightUnit] = None
 
 class SetDeletedPayload(BaseModel):
@@ -60,16 +60,41 @@ class SetDeletedPayload(BaseModel):
     original_event_id: str
     reason: Optional[str] = None
 
+class SetType(str, Enum):
+    """Type of set."""
+    STANDARD = "standard"
+    AMRAP = "amrap"  # As Many Reps As Possible
+    DROP = "drop"     # Drop set
+    WARMUP = "warmup"
+
+
+class TemplateExercise(BaseModel):
+    """Exercise within a template with target values."""
+    exercise_id: str
+    target_sets: Optional[int] = Field(default=None, ge=1)
+    target_reps: Optional[int] = Field(default=None, ge=1)
+    target_weight: Optional[float] = Field(default=None, ge=0)
+    target_unit: WeightUnit = WeightUnit.KG
+    set_type: SetType = SetType.STANDARD
+    rest_seconds: int = Field(default=60, ge=0)
+    notes: Optional[str] = None
+
+
 class TemplateCreatedPayload(BaseModel):
     template_id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
-    exercise_ids: List[str]
+    # Support both legacy (exercise_ids) and new (exercises) format
+    exercise_ids: Optional[List[str]] = None  # Legacy: just IDs
+    exercises: Optional[List[TemplateExercise]] = None  # New: full exercise specs
     source_workout_id: Optional[str] = None
+
 
 class TemplateUpdatedPayload(BaseModel):
     template_id: str
     name: Optional[str] = None
-    exercise_ids: Optional[List[str]] = None
+    exercise_ids: Optional[List[str]] = None  # Legacy
+    exercises: Optional[List[TemplateExercise]] = None  # New
+
 
 class TemplateDeletedPayload(BaseModel):
     template_id: str

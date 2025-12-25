@@ -1,30 +1,61 @@
 """Template endpoints."""
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List, Optional, Any, Dict
+from pydantic import BaseModel, Field
 from uuid import uuid4
 
 from backend.database import get_projection
 from backend.events import emit_event, ConcurrencyConflictError
-from backend.schema.events import EventType
+from backend.schema.events import EventType, SetType, WeightUnit
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
+
+
+class TemplateExerciseResponse(BaseModel):
+    """Exercise within a template."""
+    exercise_id: str
+    target_sets: Optional[int] = None
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    target_unit: str = "kg"
+    set_type: str = "standard"
+    rest_seconds: int = 60
+    notes: Optional[str] = None
+
 
 class TemplateResponse(BaseModel):
     id: str
     name: str
-    exercise_ids: List[str]
+    exercise_ids: List[str]  # Legacy field for backwards compat
+    exercises: Optional[List[TemplateExerciseResponse]] = None  # New enhanced format
     created_at: str
-    last_used_at: Optional[str]
-    use_count: int
+    last_used_at: Optional[str] = None
+    use_count: int = 0
+
+
+class TemplateExerciseRequest(BaseModel):
+    """Exercise spec for creating/updating templates."""
+    exercise_id: str
+    target_sets: Optional[int] = Field(default=None, ge=1)
+    target_reps: Optional[int] = Field(default=None, ge=1)
+    target_weight: Optional[float] = Field(default=None, ge=0)
+    target_unit: str = "kg"
+    set_type: str = "standard"
+    rest_seconds: int = Field(default=60, ge=0)
+    notes: Optional[str] = None
+
 
 class CreateTemplateRequest(BaseModel):
     name: str
-    exercise_ids: List[str]
+    # Support both legacy and new format
+    exercise_ids: Optional[List[str]] = None  # Legacy: just IDs
+    exercises: Optional[List[TemplateExerciseRequest]] = None  # New: full specs
+
 
 class UpdateTemplateRequest(BaseModel):
     name: Optional[str] = None
-    exercise_ids: Optional[List[str]] = None
+    exercise_ids: Optional[List[str]] = None  # Legacy
+    exercises: Optional[List[TemplateExerciseRequest]] = None  # New
 
 @router.get("", response_model=List[TemplateResponse])
 async def list_templates():
@@ -35,17 +66,32 @@ async def list_templates():
 @router.post("", response_model=TemplateResponse)
 async def create_template(request: CreateTemplateRequest):
     """Create a new template."""
+    # Check for duplicate name
+    templates = get_projection("workout_templates", "default") or []
+    name_lower = request.name.strip().lower()
+    if any(t["name"].strip().lower() == name_lower for t in templates):
+        raise HTTPException(status_code=400, detail="A template with this name already exists")
+
     template_id = str(uuid4())
+
+    # Build payload based on request format
+    payload = {
+        "template_id": template_id,
+        "name": request.name,
+    }
+
+    if request.exercises:
+        # New format: full exercise specs
+        payload["exercises"] = [ex.model_dump() for ex in request.exercises]
+    elif request.exercise_ids:
+        # Legacy format: just IDs
+        payload["exercise_ids"] = request.exercise_ids
+    else:
+        # Empty template
+        payload["exercises"] = []
+
     try:
-        emit_event(
-            EventType.TEMPLATE_CREATED,
-            {
-                "template_id": template_id,
-                "name": request.name,
-                "exercise_ids": request.exercise_ids
-            },
-            "default"
-        )
+        emit_event(EventType.TEMPLATE_CREATED, payload, "default")
         templates = get_projection("workout_templates", "default") or []
         created = next((t for t in templates if t["id"] == template_id), None)
         if not created:
@@ -67,6 +113,41 @@ async def get_template(template_id: str):
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
+
+@router.put("/{template_id}", response_model=TemplateResponse)
+async def update_template(template_id: str, request: UpdateTemplateRequest):
+    """Update an existing template."""
+    # Check for duplicate name (excluding current template)
+    if request.name is not None:
+        templates = get_projection("workout_templates", "default") or []
+        name_lower = request.name.strip().lower()
+        if any(t["name"].strip().lower() == name_lower and t["id"] != template_id for t in templates):
+            raise HTTPException(status_code=400, detail="A template with this name already exists")
+
+    # Build payload
+    payload = {"template_id": template_id}
+
+    if request.name is not None:
+        payload["name"] = request.name
+    if request.exercises is not None:
+        payload["exercises"] = [ex.model_dump() for ex in request.exercises]
+    elif request.exercise_ids is not None:
+        payload["exercise_ids"] = request.exercise_ids
+
+    try:
+        emit_event(EventType.TEMPLATE_UPDATED, payload, "default")
+        templates = get_projection("workout_templates", "default") or []
+        updated = next((t for t in templates if t["id"] == template_id), None)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return updated
+    except ConcurrencyConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.delete("/{template_id}")
 async def delete_template(template_id: str):

@@ -93,6 +93,24 @@ async def list_exercises():
     exercises = get_exercises(user_id="default")
     return {"exercises": exercises}
 
+@app.get("/api/exercises/{exercise_id}/history")
+async def get_exercise_history(exercise_id: str):
+    """Get history and PRs for a specific exercise."""
+    history = get_projection(f"exercise_history:{exercise_id}", user_id="default")
+    records = get_projection(f"personal_records:{exercise_id}", user_id="default")
+
+    # Get last session's sets for "previous values" display
+    last_session = None
+    if history and history.get("sessions"):
+        last_session = history["sessions"][0]
+
+    return {
+        "exercise_id": exercise_id,
+        "history": history,
+        "personal_records": records,
+        "last_session": last_session
+    }
+
 # Serve frontend
 FRONTEND_DIR = BASE_DIR / "frontend"
 
