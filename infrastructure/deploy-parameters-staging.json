@@ -1,0 +1,29 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "staging"
+  },
+  {
+    "ParameterKey": "PrimaryDomain",
+    "ParameterValue": "staging.titantrakr.com"
+  },
+  {
+    "ParameterKey": "DBMasterUsername",
+    "ParameterValue": "gym_admin"
+  },
+  {
+    "ParameterKey": "DBMasterPassword",
+    "ParameterValue": "CHANGE_ME_STRONG_PASSWORD_HERE"
+  },
+  {
+    "ParameterKey": "AnthropicApiKey",
+    "ParameterValue": "CHANGE_ME_YOUR_ANTHROPIC_KEY"
+  },
+  {
+    "ParameterKey": "OpenAIApiKey",
+    "ParameterValue": ""
+  }
+]
+
+
+
