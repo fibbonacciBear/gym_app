@@ -13,15 +13,27 @@
   },
   {
     "ParameterKey": "DBMasterPassword",
-    "ParameterValue": "CHANGE_ME_STRONG_PASSWORD_HERE"
+    "ParameterValue": "CHANGE_ME_DIFFERENT_SECURE_PASSWORD"
   },
   {
     "ParameterKey": "AnthropicApiKey",
-    "ParameterValue": "CHANGE_ME_YOUR_ANTHROPIC_KEY"
+    "ParameterValue": "CHANGE_ME_YOUR_ANTHROPIC_API_KEY"
   },
   {
     "ParameterKey": "OpenAIApiKey",
     "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "Auth0Domain",
+    "ParameterValue": "dev-kxhlrosv4h2zodna.us.auth0.com"
+  },
+  {
+    "ParameterKey": "Auth0ClientId",
+    "ParameterValue": "UG75fXbrNQxREwN7psydYxYrZQP7Vn6E"
+  },
+  {
+    "ParameterKey": "Auth0Audience",
+    "ParameterValue": "https://api.titantrakr.com"
   }
 ]
 

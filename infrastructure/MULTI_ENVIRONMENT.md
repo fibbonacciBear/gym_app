@@ -3,7 +3,7 @@
 ## Environment Strategy
 
 ### Production
-- **Domain:** titantrakr.com (+ traktitan.com, tritontracker.com)
+- **Domain:** titantrakr.com
 - **Database:** RDS t4g.micro (always-on)
 - **Backups:** 30-day automated + AWS Backup tiers
 - **Stack name:** `gym-app-prod`
@@ -122,7 +122,7 @@ aws cloudformation wait stack-create-complete \
 
 | Component | Staging | Production |
 |-----------|---------|------------|
-| **Domain** | staging.titantrakr.com | titantrakr.com (+ 2 others) |
+| **Domain** | staging.titantrakr.com | titantrakr.com |
 | **Database** | t4g.micro (stop when idle) | t4g.micro (always-on) |
 | **Backup Retention** | 7 days | 30 days + AWS Backup |
 | **Lambda Memory** | 512 MB | 512 MB (same) |
@@ -581,10 +581,6 @@ Usage:
 For production, it creates a multi-domain certificate:
 - `titantrakr.com`
 - `www.titantrakr.com`
-- `traktitan.com`
-- `www.traktitan.com`
-- `tritontracker.com`
-- `www.tritontracker.com`
 
 Both use DNS validation (automatic if Route53 manages your domains).
 
@@ -627,7 +623,7 @@ aws lambda update-alias \
 
 1. ✅ CloudFormation template supports both environments
 2. ✅ Staging uses `staging.titantrakr.com`
-3. ✅ Production uses all 3 domains
+3. ✅ Production uses titantrakr.com
 4. ✅ Separate databases for isolation
 5. ✅ Cost-optimized staging (can stop DB off-hours)
 

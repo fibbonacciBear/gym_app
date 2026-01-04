@@ -3,6 +3,11 @@
  */
 function workoutApp() {
     return {
+        // Auth state
+        isAuthenticated: false,
+        user: null,
+        authInitialized: false,
+
         // State
         activeTab: 'workout',
         currentWorkout: null,
@@ -55,6 +60,21 @@ function workoutApp() {
 
         // Initialize
         async init() {
+            // Initialize Auth0
+            try {
+                const auth0Ready = await window.Auth.init();
+                if (auth0Ready) {
+                    this.isAuthenticated = await window.Auth.isAuthenticated();
+                    if (this.isAuthenticated) {
+                        this.user = await window.Auth.getUser();
+                    }
+                }
+                this.authInitialized = true;
+            } catch (error) {
+                console.error('Auth initialization error:', error);
+                this.authInitialized = true;
+            }
+
             this.voiceSupported = VoiceInput.init();
             VoiceInput.onResult = (transcript) => {
                 // Route to appropriate handler based on context
@@ -71,8 +91,33 @@ function workoutApp() {
             VoiceInput.onError = (error) => this.handleVoiceError(error);
             VoiceOutput.init(); // Initialize voice output
             await this.loadExercises();
-            await this.loadCurrentWorkout();
-            await this.loadTemplates();  // Load templates for Plan Builder
+            
+            // Only load workout data if authenticated
+            if (this.isAuthenticated) {
+                await this.loadCurrentWorkout();
+                await this.loadTemplates();  // Load templates for Plan Builder
+            } else {
+                this.showStatus('Please log in to start tracking workouts', 'info');
+            }
+        },
+
+        // Auth handlers
+        async handleLogin() {
+            try {
+                await window.Auth.login();
+            } catch (error) {
+                console.error('Login failed:', error);
+                this.showStatus('Login failed. Please try again.', 'error');
+            }
+        },
+
+        async handleLogout() {
+            try {
+                await window.Auth.logout();
+            } catch (error) {
+                console.error('Logout failed:', error);
+                this.showStatus('Logout failed. Please try again.', 'error');
+            }
         },
 
         // Load all exercises from the library
@@ -278,9 +323,10 @@ function workoutApp() {
 
                 if (this.editingTemplate) {
                     // Update existing template
+                    const headers = await API.getHeaders();
                     const response = await fetch(`/api/templates/${this.editingTemplate.id}`, {
                         method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
+                        headers,
                         body: JSON.stringify(payload)
                     });
 
@@ -290,9 +336,10 @@ function workoutApp() {
                     this.showStatus('Template updated!', 'success');
                 } else {
                     // Create new template
+                    const headers = await API.getHeaders();
                     const response = await fetch('/api/templates', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers,
                         body: JSON.stringify(payload)
                     });
 
@@ -319,8 +366,10 @@ function workoutApp() {
             }
 
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch(`/api/templates/${templateId}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers
                 });
 
                 if (!response.ok) {
@@ -362,9 +411,10 @@ function workoutApp() {
 
             try {
                 // Send to voice API with plan_builder mode
+                const headers = await API.getHeaders();
                 const response = await fetch('/api/voice/process', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     body: JSON.stringify({
                         transcript,
                         mode: 'plan_builder'
@@ -520,9 +570,10 @@ function workoutApp() {
             this.voiceTranscript = transcript;
 
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch('/api/voice/process', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     body: JSON.stringify({
                         transcript,
                         mode: 'plan_builder'
@@ -795,7 +846,8 @@ function workoutApp() {
         async loadHistory() {
             this.historyLoading = true;
             try {
-                const response = await fetch('/api/history');
+                const headers = await API.getHeaders();
+                const response = await fetch('/api/history', { headers });
                 if (!response.ok) {
                     throw new Error('Failed to load history');
                 }
@@ -831,7 +883,8 @@ function workoutApp() {
         // Load templates
         async loadTemplates() {
             try {
-                const response = await fetch('/api/templates');
+                const headers = await API.getHeaders();
+                const response = await fetch('/api/templates', { headers });
                 if (!response.ok) {
                     throw new Error('Failed to load templates');
                 }
@@ -852,9 +905,10 @@ function workoutApp() {
             const exerciseIds = this.currentWorkout.exercises.map(e => e.exercise_id);
 
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch('/api/templates', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     body: JSON.stringify({
                         name: this.templateName.trim(),
                         exercise_ids: exerciseIds
@@ -878,8 +932,10 @@ function workoutApp() {
         // Start a workout from a template
         async startFromTemplate(templateId) {
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch(`/api/templates/${templateId}/start`, {
-                    method: 'POST'
+                    method: 'POST',
+                    headers
                 });
 
                 if (!response.ok) {
@@ -916,9 +972,10 @@ function workoutApp() {
             this.voiceTranscript = transcript;
 
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch('/api/voice/process', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     body: JSON.stringify({transcript})
                 });
 
@@ -1097,9 +1154,10 @@ function workoutApp() {
             this.voiceTranscript = transcript;
 
             try {
+                const headers = await API.getHeaders();
                 const response = await fetch('/api/voice/process', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     body: JSON.stringify({transcript})
                 });
 

@@ -1,11 +1,7 @@
 [
   {
     "ParameterKey": "Environment",
-    "ParameterValue": "staging"
-  },
-  {
-    "ParameterKey": "PrimaryDomain",
-    "ParameterValue": "staging.titantrakr.com"
+    "ParameterValue": "prod"
   },
   {
     "ParameterKey": "DBMasterUsername",
@@ -13,15 +9,11 @@
   },
   {
     "ParameterKey": "DBMasterPassword",
-    "ParameterValue": "CHANGE_ME_SECURE_PASSWORD"
+    "ParameterValue": "CHANGE_ME_DIFFERENT_SECURE_PASSWORD"
   },
   {
     "ParameterKey": "AnthropicApiKey",
     "ParameterValue": "CHANGE_ME_YOUR_ANTHROPIC_API_KEY"
-  },
-  {
-    "ParameterKey": "OpenAIApiKey",
-    "ParameterValue": ""
   },
   {
     "ParameterKey": "Auth0Domain",
@@ -34,8 +26,18 @@
   {
     "ParameterKey": "Auth0Audience",
     "ParameterValue": "https://api.titantrakr.com"
+  },
+  {
+    "ParameterKey": "PrimaryDomain",
+    "ParameterValue": "titantrakr.com"
+  },
+  {
+    "ParameterKey": "Route53HostedZoneId",
+    "ParameterValue": "Z062771734T6PR83RBVON"
+  },
+  {
+    "ParameterKey": "SSLCertificateArn",
+    "ParameterValue": "arn:aws:acm:us-east-1:273354662815:certificate/49b25b11-a83d-4e99-9d9b-4f53a60e3b0a"
   }
 ]
-
-
 

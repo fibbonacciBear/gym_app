@@ -14,9 +14,7 @@ graph TB
     
     subgraph DNS["Route53 DNS"]
         D1[titantrakr.com]
-        D2[traktitan.com]
-        D3[tritontracker.com]
-        D4[staging.titantrakr.com]
+        D2[staging.titantrakr.com]
     end
     
     subgraph CDN["CloudFront CDN"]
@@ -228,10 +226,10 @@ graph TB
         FastAPI[FastAPI Application]
         
         subgraph Routes["API Routes"]
-            R1[/api/events]
-            R2[/api/voice]
-            R3[/api/history]
-            R4[/api/templates]
+            R1["/api/events"]
+            R2["/api/voice"]
+            R3["/api/history"]
+            R4["/api/templates"]
         end
         
         subgraph Core["Business Logic"]
@@ -246,12 +244,12 @@ graph TB
     end
     
     subgraph External["External Services"]
-        Claude[Anthropic Claude<br/>3.5 Haiku]
+        Claude[Anthropic Claude<br/>4.5 Haiku]
         OpenAI[OpenAI GPT-4<br/>Optional]
     end
     
     Browser -->|REST API| FastAPI
-    Voice -->|Transcript| R2
+    Voice -.->|Used by| Browser
     
     FastAPI --> R1
     FastAPI --> R2
@@ -318,15 +316,11 @@ graph TB
 graph TB
     subgraph Production["Production Environment"]
         ProdDomain1[titantrakr.com]
-        ProdDomain2[traktitan.com]
-        ProdDomain3[tritontracker.com]
         ProdCF[CloudFront Prod]
         ProdLambda[Lambda: prod-gym-app<br/>Image: gym-app:prod]
         ProdDB[(RDS PostgreSQL<br/>prod-gym-app-db<br/>Always On)]
         
         ProdDomain1 --> ProdCF
-        ProdDomain2 --> ProdCF
-        ProdDomain3 --> ProdCF
         ProdCF --> ProdLambda
         ProdLambda --> ProdDB
     end
@@ -366,7 +360,7 @@ graph TB
 
 ---
 
-## Deployment Pipeline
+## Deployment Pipeline (Manual - Developer Controlled)
 
 ```mermaid
 graph LR
@@ -379,25 +373,24 @@ graph LR
     end
     
     subgraph Deploy["Deployment"]
-        ECR[Push to ECR<br/>Tag: staging]
-        CFStaging[Deploy to Staging<br/>CloudFormation]
-        TestStaging[Test Staging<br/>Manual QA]
-        Promote[Promote Image<br/>Retag as prod]
-        CFProd[Deploy to Prod<br/>CloudFormation Update]
+        ECR[Push to ECR<br/>Tag: staging/prod]
+        CFDeploy[Update Lambda<br/>CloudFormation]
+        HealthCheck[Health Check<br/>/api/health]
     end
     
-    Dev -->|git push| Git
-    Git -->|Trigger| Docker
+    Dev -->|git push<br/>NO AUTO-DEPLOY| Git
+    Git -.->|Code ready| Dev
+    Dev -->|make deploy-staging<br/>OR<br/>make deploy-prod| Docker
     Docker --> Test
     Test -->|Pass| ECR
-    ECR --> CFStaging
-    CFStaging --> TestStaging
-    TestStaging -->|✓ Approved| Promote
-    Promote --> CFProd
+    ECR --> CFDeploy
+    CFDeploy --> HealthCheck
+    HealthCheck -->|✅ Success| Dev
     
     style Dev fill:#4CAF50
-    style TestStaging fill:#FF9800
-    style CFProd fill:#F44336
+    style Git fill:#E3F2FD
+    style CFDeploy fill:#FF9800
+    style HealthCheck fill:#2196F3
 ```
 
 ---
@@ -610,7 +603,7 @@ graph TB
         P2[RDS Proxy<br/>$11]
         P3[CloudFront<br/>$5]
         P4[AWS Backup<br/>$2]
-        P5[Route53<br/>$1.50]
+        P5[Route53<br/>$0.50]
         P6[Lambda<br/>$0 free tier]
     end
     
@@ -643,7 +636,7 @@ graph TB
 |------|-----------|---------|------------|-------|
 | **Always On** | RDS db.t4g.micro | $5 | $12 | Stop staging off-hours |
 | **Always On** | RDS Proxy | $0 | $11 | Staging direct connect |
-| **Always On** | Route53 (3 zones) | Shared | $1.50 | Shared cost |
+| **Always On** | Route53 | Shared | $0.50 | Shared cost |
 | **Usage-Based** | Lambda | $0 | $0 | Within free tier (1M requests) |
 | **Usage-Based** | CloudFront | $1 | $5 | Data transfer + requests |
 | **Usage-Based** | AWS Backup | $0 | $2 | Storage only |
@@ -701,7 +694,7 @@ graph LR
 
 ### Core Services (7)
 
-1. **Route53** - DNS management for 3 domains
+1. **Route53** - DNS management for titantrakr.com
 2. **ACM** - SSL certificates (free)
 3. **CloudFront** - Global CDN (150+ edge locations)
 4. **Lambda** - Serverless compute (FastAPI + Mangum)
@@ -746,7 +739,7 @@ graph TB
     end
     
     subgraph GYM["Gym App Architecture"]
-        GYMDNS[Route53:<br/>titantrakr.com + 2 alts]
+        GYMDNS[Route53:<br/>titantrakr.com]
         GYMCF[CloudFront]
         GYMLambda[Lambda: gym-app<br/>Docker, 512MB, 30s]
         GYMDB[(RDS PostgreSQL<br/>db.t4g.micro<br/>+ RDS Proxy)]
@@ -789,25 +782,27 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph Events["Event Store (Immutable)"]
-        E1[WorkoutStarted<br/>timestamp: 2024-01-01T10:00:00Z]
-        E2[ExerciseAdded<br/>timestamp: 2024-01-01T10:01:00Z]
-        E3[SetLogged<br/>timestamp: 2024-01-01T10:05:00Z]
-        E4[SetLogged<br/>timestamp: 2024-01-01T10:08:00Z]
-        E5[WorkoutCompleted<br/>timestamp: 2024-01-01T11:00:00Z]
+    subgraph Events["Event Store - Immutable"]
+        E1["WorkoutStarted"]
+        E2["ExerciseAdded"]
+        E3["SetLogged"]
+        E4["SetLogged"]
+        E5["WorkoutCompleted"]
     end
     
-    subgraph Projections["Projections (Derived State)"]
-        P1[current_workout<br/>Null]
-        P2[workout_history<br/>[{...workout data...}]]
-        P3[exercise_history:bench-press<br/>{last_weight: 80kg}]
-        P4[personal_records:bench-press<br/>{max_weight: 100kg}]
+    subgraph Projections["Projections - Derived State"]
+        P1["current_workout"]
+        P2["workout_history"]
+        P3["exercise_history"]
+        P4["personal_records"]
     end
     
     subgraph Storage["PostgreSQL Storage"]
-        Events -->|events table<br/>JSONB payload| PG[(PostgreSQL)]
-        Projections -->|projections table<br/>JSONB data| PG
+        PG[("PostgreSQL<br/>Database")]
     end
+    
+    Events -->|events table| PG
+    Projections -->|projections table| PG
     
     E1 -.->|Build| P1
     E2 -.->|Build| P1
@@ -821,7 +816,7 @@ graph TB
     
     style Events fill:#4CAF50
     style Projections fill:#2196F3
-    style PG fill:#9C27B0
+    style Storage fill:#9C27B0
 ```
 
 **Why This Works on PostgreSQL:**
@@ -832,43 +827,42 @@ graph TB
 
 ---
 
-## Deployment States
+## Deployment States (Manual Control)
 
 ```mermaid
 stateDiagram-v2
     [*] --> LocalDevelopment
     
-    LocalDevelopment --> BuildDocker: Code Complete
+    LocalDevelopment --> ReadyToDeploy: Code Complete
+    ReadyToDeploy --> BuildDocker: Run deploy command
     BuildDocker --> PushECR: Tests Pass
     PushECR --> DeployStaging: Image Ready
     
-    DeployStaging --> TestingStaging: Stack Created
-    TestingStaging --> DeployStaging: Bugs Found
-    TestingStaging --> PromoteToProduction: QA Approved
+    DeployStaging --> TestingStaging: Stack Updated
+    TestingStaging --> ReadyToDeploy: Bugs Found
+    TestingStaging --> ProductionReady: Verified
     
-    PromoteToProduction --> ProductionLive: Stack Updated
-    ProductionLive --> MonitorProduction: Deploy Complete
+    ProductionReady --> DeployProduction: Deploy to prod
+    DeployProduction --> ProductionLive: Stack Updated
+    ProductionLive --> MonitorProduction: Complete
     
-    MonitorProduction --> Rollback: Errors Detected
+    MonitorProduction --> Rollback: Errors
     MonitorProduction --> LocalDevelopment: New Features
-    Rollback --> ProductionLive: Previous Version
+    Rollback --> ProductionLive: Restore
     
     note right of LocalDevelopment
-        SQLite database
-        Uvicorn server
-        Hot reload
+        Local SQLite
+        No auto-deploy on git push
     end note
     
     note right of TestingStaging
         staging.titantrakr.com
-        Separate RDS
-        Safe to break
+        Safe to test
     end note
     
     note right of ProductionLive
         titantrakr.com
-        Full backups
-        Monitoring active
+        Production system
     end note
 ```
 
@@ -1000,7 +994,7 @@ You now have a **production-ready, serverless, multi-environment AWS architectur
 2. ✅ Uses PostgreSQL (your preference over DynamoDB)
 3. ✅ Supports staging + production environments
 4. ✅ Includes comprehensive 3-tier backup strategy
-5. ✅ Handles SSL for 3 domains automatically
+5. ✅ Handles SSL for titantrakr.com automatically
 6. ✅ Scales automatically with Lambda
 7. ✅ Costs ~$40/month for both environments
 8. ✅ One-command deployment scripts

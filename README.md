@@ -35,9 +35,10 @@ A **voice-first** workout tracking application built for speed, simplicity, and 
 
 ### Backend
 - **FastAPI** - Modern Python web framework
-- **SQLite** (local) / **PostgreSQL** (production)
+- **SQLite** (local dev) / **PostgreSQL** (production & local testing)
 - **Pydantic** - Data validation and schemas
 - **OpenAI/Anthropic** - LLM for voice command parsing
+- **psycopg2** - PostgreSQL adapter
 
 ### Infrastructure
 - **AWS Lambda** (Docker) - Serverless compute
@@ -83,6 +84,33 @@ uvicorn backend.main:app --reload --port 8000
 ```
 http://localhost:8000
 ```
+
+### Local PostgreSQL Testing (Optional)
+
+For production-like testing with PostgreSQL before AWS deployment:
+
+1. **Start PostgreSQL with Docker**
+```bash
+docker-compose up -d
+```
+
+2. **Configure PostgreSQL connection**
+```bash
+# In .env file, add:
+DATABASE_URL=postgresql://gymuser:gympass123@localhost:5432/gym_app
+```
+
+3. **Test database connection**
+```bash
+python test_database.py
+```
+
+4. **Run app with PostgreSQL**
+```bash
+uvicorn backend.main:app --reload --port 8000
+```
+
+See [infrastructure/LOCAL_POSTGRES_SETUP.md](infrastructure/LOCAL_POSTGRES_SETUP.md) for detailed PostgreSQL setup guide.
 
 ### Testing Voice Commands
 
@@ -229,7 +257,9 @@ pytest --cov=backend tests/
 | `USE_OPENAI` | Use OpenAI instead of Anthropic | No | `false` |
 | `OPENAI_API_KEY` | OpenAI API key | If USE_OPENAI=true | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | If USE_OPENAI=false | - |
-| `DATABASE_URL` | PostgreSQL connection string (prod) | AWS only | SQLite |
+| `DATABASE_URL` | PostgreSQL connection string | No | SQLite (local) |
+
+**Note**: When `DATABASE_URL` is set, the app uses PostgreSQL. When empty, it uses SQLite. This allows seamless switching between local dev (SQLite) and production-like testing (PostgreSQL).
 
 ### Database Migration
 

@@ -10,11 +10,6 @@ Parameters:
       - staging
       - dev
     Description: Environment name
-
-Conditions:
-  IsProduction: !Equals [!Ref Environment, 'prod']
-  IsStaging: !Equals [!Ref Environment, 'staging']
-  IsDevelopment: !Equals [!Ref Environment, 'dev']
   
   PrimaryDomain:
     Type: String
@@ -44,6 +39,26 @@ Conditions:
     NoEcho: true
     Default: ''
     Description: OpenAI API key (optional)
+  
+  Auth0Domain:
+    Type: String
+    NoEcho: false
+    Description: Auth0 domain (e.g., dev-xxxx.us.auth0.com)
+  
+  Auth0ClientId:
+    Type: String
+    NoEcho: false
+    Description: Auth0 Client ID for the SPA
+  
+  Auth0Audience:
+    Type: String
+    NoEcho: false
+    Description: Auth0 API Audience/Identifier (e.g., https://api.titantrakr.com)
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+  IsStaging: !Equals [!Ref Environment, 'staging']
+  IsDevelopment: !Equals [!Ref Environment, 'dev']
 
 Resources:
   # ============================================================================
@@ -184,7 +199,7 @@ Resources:
             CompletionWindowMinutes: 120
             Lifecycle:
               MoveToColdStorageAfterDays: 30
-              DeleteAfterDays: 90  # Keep weekly backups for 90 days
+              DeleteAfterDays: 180  # Keep weekly backups for 180 days (30 + 90 minimum gap)
           - RuleName: MonthlyBackup
             TargetBackupVault: !Ref BackupVault
             ScheduleExpression: 'cron(0 5 1 * ? *)'  # 1st of month, 5 AM UTC
@@ -284,8 +299,6 @@ Resources:
             Principal:
               Service: rds.amazonaws.com
             Action: 'sts:AssumeRole'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/service-role/AmazonRDSProxyVPCAccessRole'
       Policies:
         - PolicyName: SecretsManagerAccess
           PolicyDocument:
@@ -295,6 +308,18 @@ Resources:
                 Action:
                   - 'secretsmanager:GetSecretValue'
                 Resource: !Ref DBSecret
+        - PolicyName: RDSProxyVPCAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeSecurityGroups'
+                Resource: '*'
 
   # ============================================================================
   # VPC for Database (RDS requires VPC)
@@ -449,6 +474,9 @@ Resources:
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           OPENAI_API_KEY: !Ref OpenAIApiKey
           USE_OPENAI: 'false'
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_CLIENT_ID: !Ref Auth0ClientId
+          AUTH0_AUDIENCE: !Ref Auth0Audience
       VpcConfig:
         SecurityGroupIds:
           - !Ref LambdaSecurityGroup

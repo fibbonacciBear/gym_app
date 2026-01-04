@@ -1,9 +1,10 @@
 """Workout history endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from backend.database import get_projection
+from backend.auth import get_current_user
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
@@ -75,17 +76,23 @@ class WorkoutHistoryEntry(BaseModel):
     from_template_id: Optional[str] = None
 
 @router.get("", response_model=List[WorkoutHistoryEntry])
-async def list_workout_history(limit: int = 50):
-    """Get workout history, most recent first."""
-    history = get_projection("workout_history", "default") or []
+async def list_workout_history(
+    limit: int = 50,
+    user_id: str = Depends(get_current_user)
+):
+    """Get workout history, most recent first. Requires authentication."""
+    history = get_projection("workout_history", user_id) or []
     # Backfill stats for pre-Sprint 3 workouts
     history_with_stats = [backfill_stats(w) for w in history]
     return history_with_stats[:limit]
 
 @router.get("/{workout_id}", response_model=WorkoutHistoryEntry)
-async def get_workout_detail(workout_id: str):
-    """Get a specific workout from history."""
-    history = get_projection("workout_history", "default") or []
+async def get_workout_detail(
+    workout_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Get a specific workout from history. Requires authentication."""
+    history = get_projection("workout_history", user_id) or []
     workout = next((w for w in history if w["id"] == workout_id), None)
     if not workout:
         raise HTTPException(status_code=404, detail="Workout not found")

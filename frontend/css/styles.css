@@ -5,6 +5,149 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* ========================================
+   DESKTOP DEVICE FRAME
+   ======================================== */
+
+/* Desktop background */
+@media (min-width: 768px) {
+    body {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        background-attachment: fixed;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem 4rem 1rem;
+        min-height: 100vh;
+    }
+}
+
+/* Mobile-first messaging banner (desktop only) */
+.desktop-banner {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .desktop-banner {
+        display: block;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding: 0.75rem 1.5rem;
+        background: rgba(59, 130, 246, 0.1);
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: 9999px;
+        backdrop-filter: blur(10px);
+    }
+    
+    .desktop-banner-text {
+        color: #60a5fa;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+}
+
+/* iPhone device frame wrapper */
+.device-frame {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+}
+
+@media (min-width: 768px) {
+    .device-frame {
+        width: 430px;
+        height: 880px;
+        background: #1c1c1e;
+        border-radius: 55px;
+        padding: 12px;
+        box-shadow: 
+            0 0 0 2px #2c2c2e,
+            0 0 0 3px #1c1c1e,
+            0 20px 60px rgba(0, 0, 0, 0.5),
+            0 5px 20px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        margin: 0 auto;
+    }
+}
+
+/* Inner screen area */
+.device-screen {
+    width: 100%;
+    height: 100%;
+    background: #111827;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 768px) {
+    .device-screen {
+        border-radius: 45px;
+        position: relative;
+    }
+}
+
+/* iPhone notch */
+.device-notch {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .device-notch {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 150px;
+        height: 30px;
+        background: #1c1c1e;
+        border-radius: 0 0 20px 20px;
+        z-index: 9999;
+    }
+    
+    /* Dynamic Island style notch */
+    .device-notch::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120px;
+        height: 8px;
+        background: #000;
+        border-radius: 10px;
+    }
+}
+
+/* Home indicator bar (bottom) */
+.device-home-indicator {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .device-home-indicator {
+        display: block;
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 140px;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 10px;
+        z-index: 9999;
+    }
+}
+
+/* Adjust app container padding for device frame */
+@media (min-width: 768px) {
+    .app-container {
+        padding-top: 3rem !important;
+        padding-bottom: 2rem !important;
+    }
+}
+
 /* Large touch targets */
 button {
     min-height: 48px;

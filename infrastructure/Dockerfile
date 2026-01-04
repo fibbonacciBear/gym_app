@@ -17,8 +17,13 @@ COPY data/ ${LAMBDA_TASK_ROOT}/data/
 # Copy lambda handler
 COPY infrastructure/lambda_handler.py ${LAMBDA_TASK_ROOT}/
 
+# Fix file permissions
+RUN chmod -R 755 ${LAMBDA_TASK_ROOT}
+
 # Set the handler
 CMD ["lambda_handler.handler"]
+
+
 
 
 

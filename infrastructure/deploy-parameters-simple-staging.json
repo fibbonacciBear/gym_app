@@ -4,10 +4,6 @@
     "ParameterValue": "staging"
   },
   {
-    "ParameterKey": "PrimaryDomain",
-    "ParameterValue": "staging.titantrakr.com"
-  },
-  {
     "ParameterKey": "DBMasterUsername",
     "ParameterValue": "gym_admin"
   },
@@ -20,10 +16,6 @@
     "ParameterValue": "CHANGE_ME_YOUR_ANTHROPIC_API_KEY"
   },
   {
-    "ParameterKey": "OpenAIApiKey",
-    "ParameterValue": ""
-  },
-  {
     "ParameterKey": "Auth0Domain",
     "ParameterValue": "dev-kxhlrosv4h2zodna.us.auth0.com"
   },
@@ -34,8 +26,18 @@
   {
     "ParameterKey": "Auth0Audience",
     "ParameterValue": "https://api.titantrakr.com"
+  },
+  {
+    "ParameterKey": "PrimaryDomain",
+    "ParameterValue": "titantrakr.com"
+  },
+  {
+    "ParameterKey": "Route53HostedZoneId",
+    "ParameterValue": "Z062771734T6PR83RBVON"
+  },
+  {
+    "ParameterKey": "SSLCertificateArn",
+    "ParameterValue": "arn:aws:acm:us-east-1:273354662815:certificate/41cc7839-2521-4ceb-8a39-f6de7711a7ae"
   }
 ]
-
-
 

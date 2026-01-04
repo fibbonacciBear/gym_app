@@ -1,5 +1,5 @@
 """Voice processing endpoint."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -7,6 +7,7 @@ from backend.llm import process_voice_command
 from backend.events import emit_event, ConcurrencyConflictError
 from backend.schema.events import EventType
 from backend.database import get_projection
+from backend.auth import get_current_user
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
@@ -23,9 +24,12 @@ class VoiceResponse(BaseModel):
     transcript: Optional[str] = None
 
 @router.post("/process", response_model=VoiceResponse)
-async def process_voice(request: VoiceRequest):
-    """Process a voice command transcript."""
-    result = process_voice_command(request.transcript, "default", mode=request.mode)
+async def process_voice(
+    request: VoiceRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Process a voice command transcript. Requires authentication."""
+    result = process_voice_command(request.transcript, user_id, mode=request.mode)
 
     if not result["success"]:
         return VoiceResponse(
@@ -59,7 +63,7 @@ async def process_voice(request: VoiceRequest):
 
             # For SetLogged, auto-add exercise if not in workout (with proper event)
             if event_type == EventType.SET_LOGGED:
-                current = get_projection("current_workout", "default")
+                current = get_projection("current_workout", user_id)
                 if current:
                     exercise_id = payload.get("exercise_id")
                     exercise_exists = any(
@@ -74,10 +78,10 @@ async def process_voice(request: VoiceRequest):
                                 "workout_id": current["id"],
                                 "exercise_id": exercise_id
                             },
-                            "default"
+                            user_id
                         )
 
-            event_record, derived = emit_event(event_type, payload, "default")
+            event_record, derived = emit_event(event_type, payload, user_id)
 
             return VoiceResponse(
                 success=True,

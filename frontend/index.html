@@ -4,17 +4,65 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Workout Tracker</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
-    <div x-data="workoutApp()" x-init="init()" class="container mx-auto px-4 py-8 max-w-md">
+    
+    <!-- Desktop Banner (mobile-first messaging) -->
+    <div class="desktop-banner">
+        <p class="desktop-banner-text">📱 Mobile-First App · Desktop features coming soon</p>
+    </div>
+    
+    <!-- iPhone Device Frame -->
+    <div class="device-frame">
+        <div class="device-notch"></div>
+        <div class="device-screen">
+            <div x-data="workoutApp()" x-init="init()" class="app-container container mx-auto px-4 py-8 max-w-md h-full">
 
         <!-- Header -->
-        <header class="text-center mb-6">
-            <h1 class="text-2xl font-bold">🏋️ Workout Tracker</h1>
-            <p class="text-gray-400 text-sm">Voice-first logging</p>
+        <header class="mb-6">
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-center flex-1">
+                    <h1 class="text-2xl font-bold">🏋️ Workout Tracker</h1>
+                    <p class="text-gray-400 text-sm">Voice-first logging</p>
+                </div>
+                
+                <!-- Auth Status -->
+                <div class="flex items-center gap-2">
+                    <template x-if="!isAuthenticated">
+                        <button
+                            @click="handleLogin()"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                        >
+                            Log In
+                        </button>
+                    </template>
+                    
+                    <template x-if="isAuthenticated && user">
+                        <div class="flex items-center gap-2">
+                            <div class="text-right text-xs">
+                                <div class="font-medium" x-text="user.name || user.email"></div>
+                                <button
+                                    @click="handleLogout()"
+                                    class="text-gray-400 hover:text-gray-200 underline"
+                                >
+                                    Log out
+                                </button>
+                            </div>
+                            <img
+                                x-show="user.picture"
+                                :src="user.picture"
+                                :alt="user.name || 'User'"
+                                class="w-10 h-10 rounded-full border-2 border-blue-600"
+                            />
+                        </div>
+                    </template>
+                </div>
+            </div>
         </header>
 
         <!-- Tab Navigation -->
@@ -999,8 +1047,12 @@
             </div>
         </div>
 
+            </div>
+        </div>
+        <div class="device-home-indicator"></div>
     </div>
 
+    <script src="/js/auth.js"></script>
     <script src="/js/api.js"></script>
     <script src="/js/voice.js"></script>
     <script src="/js/app.js"></script>

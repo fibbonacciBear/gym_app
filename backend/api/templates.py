@@ -1,5 +1,5 @@
 """Template endpoints."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field
 from uuid import uuid4
@@ -7,6 +7,7 @@ from uuid import uuid4
 from backend.database import get_projection
 from backend.events import emit_event, ConcurrencyConflictError
 from backend.schema.events import EventType, SetType, WeightUnit
+from backend.auth import get_current_user
 
 router = APIRouter(prefix="/api/templates", tags=["templates"])
 
@@ -58,16 +59,19 @@ class UpdateTemplateRequest(BaseModel):
     exercises: Optional[List[TemplateExerciseRequest]] = None  # New
 
 @router.get("", response_model=List[TemplateResponse])
-async def list_templates():
-    """List all templates."""
-    templates = get_projection("workout_templates", "default") or []
+async def list_templates(user_id: str = Depends(get_current_user)):
+    """List all templates. Requires authentication."""
+    templates = get_projection("workout_templates", user_id) or []
     return templates
 
 @router.post("", response_model=TemplateResponse)
-async def create_template(request: CreateTemplateRequest):
-    """Create a new template."""
+async def create_template(
+    request: CreateTemplateRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Create a new template. Requires authentication."""
     # Check for duplicate name
-    templates = get_projection("workout_templates", "default") or []
+    templates = get_projection("workout_templates", user_id) or []
     name_lower = request.name.strip().lower()
     if any(t["name"].strip().lower() == name_lower for t in templates):
         raise HTTPException(status_code=400, detail="A template with this name already exists")
@@ -91,8 +95,8 @@ async def create_template(request: CreateTemplateRequest):
         payload["exercises"] = []
 
     try:
-        emit_event(EventType.TEMPLATE_CREATED, payload, "default")
-        templates = get_projection("workout_templates", "default") or []
+        emit_event(EventType.TEMPLATE_CREATED, payload, user_id)
+        templates = get_projection("workout_templates", user_id) or []
         created = next((t for t in templates if t["id"] == template_id), None)
         if not created:
             # Defensive guard: should not happen because emit_event is transactional
@@ -106,20 +110,27 @@ async def create_template(request: CreateTemplateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{template_id}", response_model=TemplateResponse)
-async def get_template(template_id: str):
-    """Get a template by ID."""
-    templates = get_projection("workout_templates", "default") or []
+async def get_template(
+    template_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Get a template by ID. Requires authentication."""
+    templates = get_projection("workout_templates", user_id) or []
     template = next((t for t in templates if t["id"] == template_id), None)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
 
 @router.put("/{template_id}", response_model=TemplateResponse)
-async def update_template(template_id: str, request: UpdateTemplateRequest):
-    """Update an existing template."""
+async def update_template(
+    template_id: str,
+    request: UpdateTemplateRequest,
+    user_id: str = Depends(get_current_user)
+):
+    """Update an existing template. Requires authentication."""
     # Check for duplicate name (excluding current template)
     if request.name is not None:
-        templates = get_projection("workout_templates", "default") or []
+        templates = get_projection("workout_templates", user_id) or []
         name_lower = request.name.strip().lower()
         if any(t["name"].strip().lower() == name_lower and t["id"] != template_id for t in templates):
             raise HTTPException(status_code=400, detail="A template with this name already exists")
@@ -135,8 +146,8 @@ async def update_template(template_id: str, request: UpdateTemplateRequest):
         payload["exercise_ids"] = request.exercise_ids
 
     try:
-        emit_event(EventType.TEMPLATE_UPDATED, payload, "default")
-        templates = get_projection("workout_templates", "default") or []
+        emit_event(EventType.TEMPLATE_UPDATED, payload, user_id)
+        templates = get_projection("workout_templates", user_id) or []
         updated = next((t for t in templates if t["id"] == template_id), None)
         if not updated:
             raise HTTPException(status_code=404, detail="Template not found")
@@ -150,13 +161,16 @@ async def update_template(template_id: str, request: UpdateTemplateRequest):
 
 
 @router.delete("/{template_id}")
-async def delete_template(template_id: str):
-    """Delete a template."""
+async def delete_template(
+    template_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Delete a template. Requires authentication."""
     try:
         emit_event(
             EventType.TEMPLATE_DELETED,
             {"template_id": template_id},
-            "default"
+            user_id
         )
         return {"success": True}
     except ConcurrencyConflictError as e:
@@ -167,9 +181,12 @@ async def delete_template(template_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{template_id}/start")
-async def start_from_template(template_id: str):
-    """Start a new workout from a template."""
-    templates = get_projection("workout_templates", "default") or []
+async def start_from_template(
+    template_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Start a new workout from a template. Requires authentication."""
+    templates = get_projection("workout_templates", user_id) or []
     template = next((t for t in templates if t["id"] == template_id), None)
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -182,7 +199,7 @@ async def start_from_template(template_id: str):
                 "from_template_id": template_id,
                 "exercise_ids": template["exercise_ids"]
             },
-            "default"
+            user_id
         )
         return {"success": True, "workout_id": result["payload"]["workout_id"]}
     except ConcurrencyConflictError as e:
