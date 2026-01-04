@@ -22,12 +22,12 @@ help:
 # Deploy to staging (safe, no confirmation needed)
 deploy-staging:
 	@echo "🚀 Deploying to STAGING..."
-	./infrastructure/scripts/deploy.sh staging
+	./deploy-staging.sh
 
 # Deploy to production (asks for confirmation)
 deploy-prod:
 	@echo "⚠️  Deploying to PRODUCTION"
-	@./deploy-quick.sh prod
+	@./deploy-production.sh
 
 # Test locally
 test-local:

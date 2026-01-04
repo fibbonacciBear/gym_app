@@ -46,7 +46,7 @@ Click **Save Changes**!
 
 ```bash
 cd /Users/akashganesan/Documents/code/gym_app
-./deploy-simple.sh
+./deploy-staging.sh
 ```
 
 **Expected time**: ~15-20 minutes (SSL certificate validation + CloudFront distribution)

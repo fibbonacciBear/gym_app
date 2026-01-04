@@ -66,7 +66,7 @@ Replace the three empty Auth0 values with your credentials from step 2.
 
 ```bash
 cd /Users/akashganesan/Documents/code/gym_app
-./deploy-simple.sh
+./deploy-staging.sh
 ```
 
 Wait ~8 minutes (NAT Gateway creation takes time).

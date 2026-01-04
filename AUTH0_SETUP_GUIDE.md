@@ -110,7 +110,7 @@ Edit `infrastructure/deploy-parameters-simple-staging.json` and fill in your Aut
 Run the deployment script to update your CloudFormation stack with NAT Gateway and Auth0 config:
 
 ```bash
-./deploy-simple.sh
+./deploy-staging.sh
 ```
 
 This will:
