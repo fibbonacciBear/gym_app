@@ -41,7 +41,7 @@ DATABASE_URL=postgresql://gymuser:gympass123@localhost:5432/gym_app
 ### 3. Test Database Connection
 
 ```bash
-python test_database.py
+python scripts/test_database.py
 ```
 
 You should see:

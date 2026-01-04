@@ -102,7 +102,7 @@ DATABASE_URL=postgresql://gymuser:gympass123@localhost:5432/gym_app
 
 3. **Test database connection**
 ```bash
-python test_database.py
+python scripts/test_database.py
 ```
 
 4. **Run app with PostgreSQL**
