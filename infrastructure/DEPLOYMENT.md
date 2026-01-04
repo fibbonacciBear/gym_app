@@ -64,7 +64,7 @@ Edit `infrastructure/deploy-parameters.json` and set:
 ```bash
 aws cloudformation create-stack \
   --stack-name gym-app-prod \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters.json \
   --capabilities CAPABILITY_IAM \
   --region us-west-1

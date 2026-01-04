@@ -1005,8 +1005,8 @@ You now have a **production-ready, serverless, multi-environment AWS architectur
 
 Deploy with:
 ```bash
-./infrastructure/scripts/deploy.sh staging
-./infrastructure/scripts/deploy.sh prod
+./deploy-staging.sh
+./deploy-production.sh
 ```
 
 

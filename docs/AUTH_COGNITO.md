@@ -22,7 +22,7 @@ Full-featured authentication using AWS Cognito User Pools with JWT tokens.
 
 ### 1. Create Cognito User Pool (CloudFormation)
 
-Add to `infrastructure/cloudformation-template.yaml`:
+Add to `infrastructure/cloudformation-simple.yaml`:
 
 ```yaml
   # Cognito User Pool
@@ -359,7 +359,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 ### 6. Update Lambda Environment Variables
 
-In `cloudformation-template.yaml`, add to Lambda environment:
+In `cloudformation-simple.yaml`, add to Lambda environment:
 
 ```yaml
   LambdaFunction:

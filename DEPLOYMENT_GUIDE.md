@@ -80,10 +80,10 @@ If `make` isn't available, use the scripts directly:
 
 ```bash
 # Deploy to staging
-./infrastructure/scripts/deploy.sh staging
+./deploy-staging.sh
 
 # Deploy to production
-./infrastructure/scripts/deploy.sh prod
+./deploy-production.sh
 
 # Quick deploy with confirmation
 ./deploy-quick.sh prod

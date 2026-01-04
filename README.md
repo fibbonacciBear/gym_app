@@ -149,7 +149,7 @@ gym_app/
 │   ├── scripts/
 │   │   ├── build-and-push.sh # Docker build script
 │   │   └── deploy.sh         # CloudFormation deploy
-│   ├── cloudformation-template.yaml
+│   ├── cloudformation-simple.yaml
 │   ├── Dockerfile
 │   ├── lambda_handler.py
 │   ├── requirements-lambda.txt
@@ -199,7 +199,7 @@ chmod +x infrastructure/scripts/*.sh
 
 3. **Deploy**
 ```bash
-./infrastructure/scripts/deploy.sh prod
+./deploy-production.sh
 ```
 
 This will:
@@ -214,7 +214,7 @@ This will:
 ### Deploy to Staging
 
 ```bash
-./infrastructure/scripts/deploy.sh staging
+./deploy-staging.sh
 ```
 
 ### Architecture Overview

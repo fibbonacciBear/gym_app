@@ -1,32 +1,20 @@
 #!/bin/bash
-# Quick deploy to production - single command
-# Usage: ./deploy-quick.sh [optional-environment]
+# Quick deploy - wrapper for staging/production deployment scripts
+# Usage: ./deploy-quick.sh [staging|prod]
 
 set -e
 
 # Default to staging for safety
 ENVIRONMENT=${1:-staging}
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🚀 Quick Deploy to $ENVIRONMENT"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-# Confirm production deployments
+# Route to appropriate deployment script
 if [ "$ENVIRONMENT" = "prod" ]; then
-  echo "⚠️  You're about to deploy to PRODUCTION"
-  read -p "Are you sure? (yes/no): " confirm
-  if [ "$confirm" != "yes" ]; then
-    echo "❌ Deployment cancelled"
-    exit 0
-  fi
+  ./deploy-production.sh
+elif [ "$ENVIRONMENT" = "staging" ]; then
+  ./deploy-staging.sh
+else
+  echo "❌ Invalid environment: $ENVIRONMENT"
+  echo "Usage: ./deploy-quick.sh [staging|prod]"
+  exit 1
 fi
-
-# Run full deployment
-./infrastructure/scripts/deploy.sh $ENVIRONMENT
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ Deployment complete!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 

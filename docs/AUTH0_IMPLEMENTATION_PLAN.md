@@ -802,7 +802,7 @@ Add to header:
 
 ### Step 5.1: Update CloudFormation Template
 
-**File:** `infrastructure/cloudformation-template.yaml`
+**File:** `infrastructure/cloudformation-simple.yaml`
 
 Add parameters:
 

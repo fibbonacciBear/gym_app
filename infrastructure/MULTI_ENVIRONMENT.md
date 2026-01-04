@@ -65,7 +65,7 @@ docker push 273354662815.dkr.ecr.us-west-1.amazonaws.com/gym-app:staging
 # Deploy staging stack
 aws cloudformation create-stack \
   --stack-name gym-app-staging \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters-staging.json \
   --capabilities CAPABILITY_IAM \
   --region us-west-1
@@ -105,7 +105,7 @@ docker push 273354662815.dkr.ecr.us-west-1.amazonaws.com/gym-app:prod
 # Deploy prod stack
 aws cloudformation create-stack \
   --stack-name gym-app-prod \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters.json \
   --capabilities CAPABILITY_IAM \
   --region us-west-1
@@ -167,7 +167,7 @@ curl https://titantrakr.com/api/health
 # 1. Deploy new "green" stack
 aws cloudformation create-stack \
   --stack-name gym-app-prod-green \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters.json
 
 # 2. Test green environment
@@ -334,7 +334,7 @@ cd /Users/akashganesan/Documents/code/gym_app
 # Deploy stack
 aws cloudformation create-stack \
   --stack-name gym-app-staging \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters-staging.json \
   --capabilities CAPABILITY_IAM \
   --region us-west-1
@@ -349,7 +349,7 @@ aws cloudformation create-stack \
 # Deploy stack
 aws cloudformation create-stack \
   --stack-name gym-app-prod \
-  --template-body file://infrastructure/cloudformation-template.yaml \
+  --template-body file://infrastructure/cloudformation-simple.yaml \
   --parameters file://infrastructure/deploy-parameters.json \
   --capabilities CAPABILITY_IAM \
   --region us-west-1
@@ -526,7 +526,7 @@ if [ "$STACK_EXISTS" = "false" ]; then
   echo "🆕 Creating new stack..."
   aws cloudformation create-stack \
     --stack-name gym-app-$ENVIRONMENT \
-    --template-body file://infrastructure/cloudformation-template.yaml \
+    --template-body file://infrastructure/cloudformation-simple.yaml \
     --parameters file://infrastructure/deploy-parameters-$ENVIRONMENT.json \
     --capabilities CAPABILITY_IAM \
     --region us-west-1
@@ -567,8 +567,8 @@ chmod +x infrastructure/scripts/deploy.sh
 
 Usage:
 ```bash
-./infrastructure/scripts/deploy.sh staging
-./infrastructure/scripts/deploy.sh prod
+./deploy-staging.sh
+./deploy-production.sh
 ```
 
 ---
@@ -632,10 +632,10 @@ aws lambda update-alias \
 Run:
 ```bash
 # Deploy staging first
-./infrastructure/scripts/deploy.sh staging
+./deploy-staging.sh
 
 # Then production
-./infrastructure/scripts/deploy.sh prod
+./deploy-production.sh
 ```
 
 
