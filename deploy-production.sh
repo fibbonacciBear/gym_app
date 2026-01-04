@@ -100,7 +100,27 @@ echo "🌐 Lambda URL:    $LAMBDA_URL"
 echo "🗄️  Database:      $DB_ENDPOINT"
 echo ""
 
-# 4. Test health endpoint
+# 4. Invalidate CloudFront cache (force fresh content)
+echo "🔄 Invalidating CloudFront cache..."
+CF_DIST_ID=$(aws cloudformation describe-stacks \
+  --stack-name $STACK_NAME \
+  --region $REGION \
+  --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+  --output text 2>/dev/null)
+
+if [ -n "$CF_DIST_ID" ] && [ "$CF_DIST_ID" != "None" ]; then
+  aws cloudfront create-invalidation \
+    --distribution-id $CF_DIST_ID \
+    --paths "/*" \
+    --query 'Invalidation.Id' \
+    --output text
+  echo "✅ CloudFront cache invalidated (all paths)"
+else
+  echo "⚠️  CloudFront distribution ID not found"
+fi
+echo ""
+
+# 5. Test health endpoint
 echo "🏥 Testing health endpoint..."
 if [ "$CUSTOM_URL" != "N/A" ]; then
   sleep 5

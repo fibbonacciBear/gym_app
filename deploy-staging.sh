@@ -92,7 +92,27 @@ echo "🌐 Lambda URL:    $LAMBDA_URL"
 echo "🗄️  Database:       $DB_ENDPOINT"
 echo ""
 
-# 4. Test health endpoint
+# 4. Invalidate CloudFront cache (force fresh content)
+if [ -n "$CUSTOM_URL" ]; then
+  echo "🔄 Invalidating CloudFront cache..."
+  CF_DIST_ID=$(aws cloudformation describe-stacks \
+    --stack-name $STACK_NAME \
+    --region $REGION \
+    --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+    --output text 2>/dev/null)
+  
+  if [ -n "$CF_DIST_ID" ] && [ "$CF_DIST_ID" != "None" ]; then
+    aws cloudfront create-invalidation \
+      --distribution-id $CF_DIST_ID \
+      --paths "/*" \
+      --query 'Invalidation.Id' \
+      --output text
+    echo "✅ CloudFront cache invalidated (all paths)"
+  fi
+fi
+echo ""
+
+# 5. Test health endpoint
 echo "🏥 Testing health endpoint..."
 if [ "$LAMBDA_URL" != "N/A" ]; then
   sleep 5  # Give Lambda a moment to be ready
@@ -106,7 +126,11 @@ echo ""
 echo "✅ Deployment complete!"
 echo ""
 echo "🎉 Your app is live at:"
-echo "   $LAMBDA_URL"
+if [ -n "$CUSTOM_URL" ]; then
+  echo "   $CUSTOM_URL"
+else
+  echo "   $LAMBDA_URL"
+fi
 echo ""
 echo "Next steps:"
 echo "1. Open the URL in your browser"
