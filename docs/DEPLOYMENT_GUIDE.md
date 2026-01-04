@@ -86,7 +86,7 @@ If `make` isn't available, use the scripts directly:
 ./deploy-production.sh
 
 # Quick deploy with confirmation
-./deploy-quick.sh prod
+./deploy-production.sh
 ```
 
 ---
