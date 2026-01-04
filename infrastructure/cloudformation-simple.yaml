@@ -57,6 +57,12 @@ Parameters:
     Default: 'arn:aws:acm:us-east-1:273354662815:certificate/41cc7839-2521-4ceb-8a39-f6de7711a7ae'
     Description: ACM Certificate ARN in us-east-1 (required for CloudFront)
 
+Conditions:
+  # Whether to create CloudFront + Route53 records. If HostedZoneId is blank, we skip custom domain setup.
+  HasDomain: !Not [!Equals [!Ref Route53HostedZoneId, '']]
+  # Used to determine whether the alias should be apex domain vs env subdomain (staging.titantrakr.com)
+  IsProduction: !Equals [!Ref Environment, 'prod']
+
 Resources:
   # ============================================================================
   # VPC and Networking
@@ -266,6 +272,7 @@ Resources:
       StorageType: gp3
       MasterUsername: !Ref DBMasterUsername
       MasterUserPassword: !Ref DBMasterPassword
+      DBName: gymapp
       DBSubnetGroupName: !Ref DBSubnetGroup
       VPCSecurityGroups:
         - !Ref DBSecurityGroup
@@ -319,7 +326,7 @@ Resources:
           ENVIRONMENT: !Ref Environment
           DB_HOST: !GetAtt DBInstance.Endpoint.Address
           DB_PORT: !GetAtt DBInstance.Endpoint.Port
-          DB_NAME: postgres
+          DB_NAME: gymapp
           DB_USER: !Ref DBMasterUsername
           DB_PASSWORD: !Ref DBMasterPassword
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
@@ -422,10 +429,6 @@ Resources:
       AliasTarget:
         HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (constant)
         DNSName: !GetAtt CloudFrontDistribution.DomainName
-
-Conditions:
-  HasDomain: !Not [!Equals [!Ref Route53HostedZoneId, '']]
-  IsProduction: !Equals [!Ref Environment, 'prod']
 
 Outputs:
   LambdaFunctionURL:
