@@ -122,6 +122,13 @@
             >
                 History
             </button>
+            <button
+                @click="activeTab = 'prs'; loadPersonalRecords()"
+                :class="{'bg-gray-700': activeTab === 'prs'}"
+                class="flex-1 py-2 rounded-lg transition-colors"
+            >
+                🏆 PRs
+            </button>
         </nav>
 
         <!-- Workout Tab Content -->
@@ -209,7 +216,18 @@
                     <div class="bg-gray-800 rounded-xl p-4">
                         <!-- Exercise Header -->
                         <div class="flex justify-between items-center mb-3">
-                            <h3 class="font-semibold" x-text="getExerciseName(exercise.exercise_id)"></h3>
+                            <div class="flex items-center gap-2">
+                                <h3 class="font-semibold" x-text="getExerciseName(exercise.exercise_id)"></h3>
+                                <!-- PR Badge -->
+                                <span
+                                    x-show="getPersonalRecords(exercise.exercise_id)?.max_weight?.weight"
+                                    class="text-yellow-400 text-sm flex items-center gap-1"
+                                    :title="`PR: ${getPersonalRecords(exercise.exercise_id)?.max_weight?.weight}${getPersonalRecords(exercise.exercise_id)?.max_weight?.unit} × ${getPersonalRecords(exercise.exercise_id)?.max_weight?.reps} reps`"
+                                >
+                                    🏆
+                                    <span class="text-xs" x-text="`${getPersonalRecords(exercise.exercise_id)?.max_weight?.weight}${getPersonalRecords(exercise.exercise_id)?.max_weight?.unit}`"></span>
+                                </span>
+                            </div>
                             <button
                                 @click="selectExerciseForSet(exercise.exercise_id)"
                                 class="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1 rounded-lg transition-colors"
@@ -218,8 +236,128 @@
                             </button>
                         </div>
 
-                        <!-- Sets List -->
-                        <div class="space-y-2">
+                        <!-- Template Target Summary (if guided mode) -->
+                        <!-- Simple Mode: Show single target summary -->
+                        <div x-show="hasTemplateTargets(exercise) && !exercise.template_targets?.set_groups" class="mb-3 text-sm text-gray-400">
+                            <span>Target: </span>
+                            <span x-text="exercise.template_targets?.target_sets"></span> sets ×
+                            <span x-text="exercise.template_targets?.target_reps"></span> reps @
+                            <span x-text="exercise.template_targets?.target_weight"></span><span x-text="exercise.template_targets?.target_unit || 'kg'"></span>
+                        </div>
+                        <!-- Set Groups Mode: Show groups summary -->
+                        <div x-show="hasTemplateTargets(exercise) && exercise.template_targets?.set_groups" class="mb-3 text-sm text-gray-400">
+                            <span>Target: </span>
+                            <span x-text="exercise.template_targets?.set_groups?.length"></span> group<span x-show="exercise.template_targets?.set_groups?.length !== 1">s</span>
+                        </div>
+
+                        <!-- GUIDED MODE: Planned Sets with Checkboxes -->
+                        <div x-show="hasTemplateTargets(exercise)" class="space-y-2 mb-3">
+                            <template x-for="plannedSet in getPlannedSets(exercise)" :key="plannedSet.setNumber">
+                                <div>
+                                    <!-- Group Header (only for first set of each group in set_groups mode) -->
+                                    <div x-show="plannedSet.isFirstInGroup && plannedSet.groupName" class="flex items-center gap-2 mb-2 mt-3 first:mt-0">
+                                        <div class="flex-1 border-t border-gray-600"></div>
+                                        <span
+                                            class="text-xs uppercase tracking-wide px-2 py-0.5 rounded"
+                                            :class="{
+                                                'bg-blue-900/50 text-blue-300': plannedSet.setType === 'warmup',
+                                                'bg-green-900/50 text-green-300': plannedSet.setType === 'working',
+                                                'bg-orange-900/50 text-orange-300': plannedSet.setType === 'dropset',
+                                                'bg-purple-900/50 text-purple-300': plannedSet.setType === 'pyramid',
+                                                'bg-gray-700 text-gray-400': !['warmup','working','dropset','pyramid'].includes(plannedSet.setType)
+                                            }"
+                                            x-text="plannedSet.groupName"
+                                        ></span>
+                                        <div class="flex-1 border-t border-gray-600"></div>
+                                    </div>
+
+                                    <!-- Set Row -->
+                                    <div
+                                        class="bg-gray-700 rounded-lg p-3 flex items-center justify-between transition-all duration-200"
+                                        :class="{
+                                            'bg-green-900/50 border border-green-600/50': isPlannedSetCompleted(exercise, plannedSet.setNumber),
+                                            'hover:bg-gray-600 cursor-pointer': !isPlannedSetCompleted(exercise, plannedSet.setNumber)
+                                        }"
+                                    >
+                                        <!-- Left: Checkbox and Set Label -->
+                                        <div class="flex items-center gap-3">
+                                            <!-- Unchecked checkbox - click to log set -->
+                                            <button
+                                                x-show="!isPlannedSetCompleted(exercise, plannedSet.setNumber)"
+                                                @click="quickLogPlannedSet(exercise.exercise_id)"
+                                                class="w-6 h-6 border-2 border-gray-400 rounded hover:border-green-500 hover:bg-green-500/20 transition-all duration-200 flex items-center justify-center"
+                                            >
+                                            </button>
+                                            <!-- Checked checkbox - click to delete/untick -->
+                                            <button
+                                                x-show="isPlannedSetCompleted(exercise, plannedSet.setNumber)"
+                                                @click="deleteSet(getLoggedSetForPlannedSet(exercise, plannedSet.setNumber)?.event_id)"
+                                                class="w-6 h-6 bg-green-600 rounded flex items-center justify-center text-white text-sm hover:bg-red-500 transition-all duration-200"
+                                                title="Click to undo"
+                                            >
+                                                ✓
+                                            </button>
+                                            <span class="text-sm text-gray-400" x-text="`Set ${plannedSet.setNumber}`"></span>
+                                            <!-- Set type badge for non-working sets (when not using groups UI) -->
+                                            <span
+                                                x-show="!plannedSet.groupName && plannedSet.setType && plannedSet.setType !== 'working' && plannedSet.setType !== 'standard'"
+                                                class="text-xs px-2 py-0.5 rounded"
+                                                :class="{
+                                                    'bg-blue-900/50 text-blue-300': plannedSet.setType === 'warmup',
+                                                    'bg-orange-900/50 text-orange-300': plannedSet.setType === 'dropset',
+                                                    'bg-purple-900/50 text-purple-300': plannedSet.setType === 'pyramid'
+                                                }"
+                                                x-text="plannedSet.setType"
+                                            ></span>
+                                        </div>
+
+                                        <!-- Right: Target or Actual Values -->
+                                        <div class="flex items-center gap-3">
+                                            <!-- If completed, show actual logged values -->
+                                            <template x-if="isPlannedSetCompleted(exercise, plannedSet.setNumber)">
+                                                <span class="font-mono text-green-400">
+                                                    <span x-text="getLoggedSetForPlannedSet(exercise, plannedSet.setNumber)?.weight"></span><span x-text="getLoggedSetForPlannedSet(exercise, plannedSet.setNumber)?.unit"></span> ×
+                                                    <span x-text="getLoggedSetForPlannedSet(exercise, plannedSet.setNumber)?.reps"></span>
+                                                </span>
+                                            </template>
+
+                                            <!-- If not completed, show target values -->
+                                            <template x-if="!isPlannedSetCompleted(exercise, plannedSet.setNumber)">
+                                                <span class="font-mono text-gray-300">
+                                                    <span x-text="plannedSet.targetWeight || 'BW'"></span><span x-show="plannedSet.targetWeight" x-text="plannedSet.targetUnit"></span> ×
+                                                    <span x-text="plannedSet.targetReps"></span>
+                                                </span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Extra Sets (beyond planned) in Guided Mode -->
+                        <div x-show="hasTemplateTargets(exercise) && exercise.sets.length > getPlannedSets(exercise).length" class="mt-3">
+                            <p class="text-xs text-gray-500 mb-2">Extra Sets:</p>
+                            <div class="space-y-2">
+                                <template x-for="(set, idx) in exercise.sets.slice(getPlannedSets(exercise).length)" :key="'extra-' + idx">
+                                    <div class="bg-gray-700 rounded-lg p-2 flex justify-between items-center">
+                                        <span class="text-sm text-gray-400" x-text="`Set ${getPlannedSets(exercise).length + idx + 1}`"></span>
+                                        <div class="flex items-center gap-3">
+                                            <span class="font-mono" x-text="`${set.weight}${set.unit} × ${set.reps}`"></span>
+                                            <button
+                                                x-show="set.event_id"
+                                                @click="deleteSet(set.event_id)"
+                                                class="text-red-400 hover:text-red-300 text-sm"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- STANDARD MODE: Logged Sets Only (for exercises without targets) -->
+                        <div x-show="!hasTemplateTargets(exercise)" class="space-y-2">
                             <template x-for="(set, idx) in exercise.sets" :key="idx">
                                 <div class="bg-gray-700 rounded-lg p-2 flex justify-between items-center">
                                     <span class="text-sm text-gray-400" x-text="`Set ${idx + 1}`"></span>
@@ -306,6 +444,98 @@
         </div>
         <!-- End History Tab Content -->
 
+        <!-- Personal Records Tab Content -->
+        <div x-show="activeTab === 'prs'" class="space-y-4">
+            <!-- Loading State -->
+            <template x-if="prLoading">
+                <p class="text-gray-400 text-center py-8">Loading personal records...</p>
+            </template>
+
+            <!-- No PRs -->
+            <template x-if="!prLoading && allPersonalRecords.length === 0">
+                <div class="text-center py-12">
+                    <p class="text-6xl mb-4">🏆</p>
+                    <p class="text-gray-400 text-lg">No personal records yet!</p>
+                    <p class="text-gray-500 text-sm mt-2">Complete some workouts to start tracking PRs</p>
+                </div>
+            </template>
+
+            <!-- PR List -->
+            <template x-if="!prLoading && allPersonalRecords.length > 0">
+                <div class="space-y-3">
+                    <template x-for="record in allPersonalRecords" :key="record.exercise_id">
+                        <div class="bg-gray-800 rounded-xl p-4">
+                            <!-- Exercise Name & Category -->
+                            <div class="flex justify-between items-start mb-3">
+                                <div>
+                                    <h3 class="font-semibold text-lg" x-text="record.exercise_name"></h3>
+                                    <span class="text-xs text-gray-500" x-text="record.category || 'Uncategorized'"></span>
+                                </div>
+                                <span class="text-2xl">🏆</span>
+                            </div>
+
+                            <!-- Max Weight PR -->
+                            <div x-show="record.max_weight?.weight" class="bg-yellow-900/30 border border-yellow-700/50 rounded-lg p-3 mb-2">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <span class="text-yellow-400 text-sm font-medium">Max Weight</span>
+                                        <p class="text-xl font-bold text-white">
+                                            <span x-text="record.max_weight?.weight"></span><span x-text="record.max_weight?.unit"></span>
+                                            <span class="text-gray-400 text-sm font-normal" x-text="`× ${record.max_weight?.reps} reps`"></span>
+                                        </p>
+                                    </div>
+                                    <span class="text-xs text-gray-500" x-text="formatPRDate(record.max_weight?.date)"></span>
+                                </div>
+                            </div>
+
+                            <!-- Max Volume PR -->
+                            <div x-show="record.max_volume?.volume" class="bg-blue-900/30 border border-blue-700/50 rounded-lg p-3 mb-2">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <span class="text-blue-400 text-sm font-medium">Max Volume</span>
+                                        <p class="text-xl font-bold text-white">
+                                            <span x-text="record.max_volume?.weight"></span><span x-text="record.max_volume?.unit"></span>
+                                            <span class="text-gray-400 text-sm font-normal" x-text="`× ${record.max_volume?.reps} reps`"></span>
+                                            <span class="text-blue-400 text-sm" x-text="`(${Math.round(record.max_volume?.volume || 0)}kg total)`"></span>
+                                        </p>
+                                    </div>
+                                    <span class="text-xs text-gray-500" x-text="formatPRDate(record.max_volume?.date)"></span>
+                                </div>
+                            </div>
+
+                            <!-- Estimated 1RM PR -->
+                            <div x-show="record.estimated_1rm?.e1rm" class="bg-purple-900/30 border border-purple-700/50 rounded-lg p-3 mb-2">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <span class="text-purple-400 text-sm font-medium">Estimated 1RM</span>
+                                        <p class="text-xl font-bold text-white">
+                                            <span x-text="record.estimated_1rm?.e1rm"></span><span x-text="record.estimated_1rm?.unit"></span>
+                                            <span class="text-gray-400 text-sm font-normal" x-text="`(from ${record.estimated_1rm?.weight}${record.estimated_1rm?.unit} × ${record.estimated_1rm?.reps})`"></span>
+                                        </p>
+                                    </div>
+                                    <span class="text-xs text-gray-500" x-text="formatPRDate(record.estimated_1rm?.date)"></span>
+                                </div>
+                            </div>
+
+                            <!-- Rep-Specific PRs -->
+                            <div x-show="Object.keys(record.by_rep_count || {}).length > 0" class="mt-3">
+                                <p class="text-xs text-gray-500 mb-2">Rep PRs:</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <template x-for="[reps, data] in Object.entries(record.by_rep_count || {}).sort((a, b) => parseInt(a[0]) - parseInt(b[0]))" :key="reps">
+                                        <span class="bg-gray-700 px-2 py-1 rounded text-sm">
+                                            <span x-text="reps"></span>-rep:
+                                            <span class="font-semibold" x-text="`${data.weight}${data.unit}`"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </template>
+        </div>
+        <!-- End Personal Records Tab Content -->
+
         <!-- Workout Detail Modal -->
         <div
             x-show="selectedWorkout"
@@ -390,10 +620,29 @@
              @click.self="showSetLogger = false"
              class="fixed inset-0 bg-black bg-opacity-75 flex items-end sm:items-center justify-center z-50">
             <div class="bg-gray-800 rounded-t-3xl sm:rounded-3xl w-full sm:max-w-md p-6">
-                <div class="mb-6">
+                <div class="mb-4">
                     <h3 class="text-lg font-semibold mb-2">Log Set</h3>
                     <p class="text-gray-400" x-text="getExerciseName(selectedExerciseId)"></p>
                 </div>
+
+                <!-- Previous Values Display -->
+                <div x-show="getPreviousSession(selectedExerciseId)" class="mb-4 p-3 bg-blue-900/30 border border-blue-700/50 rounded-lg">
+                    <p class="text-sm text-blue-300">
+                        <span class="text-gray-400">Last time:</span>
+                        <strong x-text="`${getPreviousSession(selectedExerciseId)?.sets?.[0]?.weight || '—'}${getPreviousSession(selectedExerciseId)?.sets?.[0]?.unit || 'kg'} × ${getPreviousSession(selectedExerciseId)?.sets?.[0]?.reps || '—'} reps`"></strong>
+                        <span class="text-xs text-gray-500 ml-2" x-text="getPreviousSession(selectedExerciseId)?.date ? new Date(getPreviousSession(selectedExerciseId).date).toLocaleDateString() : ''"></span>
+                    </p>
+                </div>
+
+                <!-- PR Display -->
+                <div x-show="getPersonalRecords(selectedExerciseId)?.max_weight?.weight" class="mb-4 p-3 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
+                    <p class="text-sm text-yellow-300">
+                        <span>🏆 PR:</span>
+                        <strong x-text="`${getPersonalRecords(selectedExerciseId)?.max_weight?.weight || '—'}${getPersonalRecords(selectedExerciseId)?.max_weight?.unit || 'kg'}`"></strong>
+                        <span class="text-xs text-gray-400" x-text="`(${getPersonalRecords(selectedExerciseId)?.max_weight?.reps || '?'} reps)`"></span>
+                    </p>
+                </div>
+
                 <form @submit.prevent="logSet()" class="space-y-4">
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -730,9 +979,93 @@
                             </button>
                         </div>
 
-                        <!-- Target Values (inline like set display) -->
-                        <div class="bg-gray-700 rounded-lg p-3">
-                            <div class="grid grid-cols-3 gap-3">
+                        <!-- SET GROUPS MODE -->
+                        <div x-show="exercise.set_groups && exercise.set_groups.length > 0" class="space-y-3">
+                            <template x-for="(group, groupIdx) in exercise.set_groups" :key="groupIdx">
+                                <div class="bg-gray-700 rounded-lg p-3">
+                                    <!-- Group Header -->
+                                    <div class="flex justify-between items-center mb-2">
+                                        <input
+                                            type="text"
+                                            x-model="group.notes"
+                                            placeholder="e.g., Warmup, Working Sets"
+                                            class="bg-gray-600 rounded px-2 py-1 text-sm flex-1 mr-2"
+                                        >
+                                        <select
+                                            x-model="group.set_type"
+                                            class="bg-gray-600 rounded px-2 py-1 text-xs mr-2"
+                                        >
+                                            <option value="warmup">Warmup</option>
+                                            <option value="working">Working</option>
+                                            <option value="dropset">Dropset</option>
+                                            <option value="pyramid">Pyramid</option>
+                                        </select>
+                                        <button
+                                            @click="removeSetGroup(index, groupIdx)"
+                                            class="text-red-400 hover:text-red-300 text-xs px-2"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+
+                                    <!-- Group Values -->
+                                    <div class="grid grid-cols-4 gap-2">
+                                        <div>
+                                            <label class="block text-xs text-gray-400 mb-1">Sets</label>
+                                            <input
+                                                type="number"
+                                                x-model.number="group.target_sets"
+                                                min="1"
+                                                class="w-full bg-gray-600 rounded px-2 py-2 text-center"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-400 mb-1">Reps</label>
+                                            <input
+                                                type="number"
+                                                x-model.number="group.target_reps"
+                                                min="1"
+                                                placeholder="–"
+                                                class="w-full bg-gray-600 rounded px-2 py-2 text-center"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-400 mb-1">Weight</label>
+                                            <input
+                                                type="number"
+                                                x-model.number="group.target_weight"
+                                                min="0"
+                                                step="0.5"
+                                                placeholder="–"
+                                                class="w-full bg-gray-600 rounded px-2 py-2 text-center"
+                                            >
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-400 mb-1">Unit</label>
+                                            <select
+                                                x-model="group.target_unit"
+                                                class="w-full bg-gray-600 rounded px-2 py-2 text-sm"
+                                            >
+                                                <option value="kg">kg</option>
+                                                <option value="lb">lb</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <!-- Add Group Button -->
+                            <button
+                                @click="addSetGroupToExercise(index)"
+                                class="w-full bg-gray-600 hover:bg-gray-500 text-white py-2 px-4 rounded-lg text-sm transition-colors"
+                            >
+                                + Add Set Group
+                            </button>
+                        </div>
+
+                        <!-- SIMPLE MODE (single target values) -->
+                        <div x-show="!exercise.set_groups || exercise.set_groups.length === 0" class="bg-gray-700 rounded-lg p-3">
+                            <div class="grid grid-cols-3 gap-3 mb-3">
                                 <div class="text-center">
                                     <label class="block text-xs text-gray-400 mb-1">Sets</label>
                                     <input
@@ -774,6 +1107,14 @@
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Convert to Set Groups Button -->
+                            <button
+                                @click="convertToSetGroups(index)"
+                                class="w-full bg-purple-600/50 hover:bg-purple-600 text-purple-200 py-2 px-4 rounded-lg text-sm transition-colors"
+                            >
+                                Use Set Groups (Advanced)
+                            </button>
                         </div>
                     </div>
                 </template>
@@ -1099,6 +1440,6 @@
     <script src="/js/auth.js"></script>
     <script src="/js/api.js"></script>
     <script src="/js/voice.js"></script>
-    <script src="/js/app.js"></script>
+    <script src="/js/app.js?v=3"></script>
 </body>
 </html>
