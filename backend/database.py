@@ -60,7 +60,7 @@ def _init_postgres() -> None:
                     id SERIAL PRIMARY KEY,
                     user_id VARCHAR(255) NOT NULL,
                     key VARCHAR(255) NOT NULL,
-                    data JSONB NOT NULL,
+                    value JSONB,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(user_id, key)
                 )
@@ -184,6 +184,17 @@ def get_connection(user_id: str = "default", isolation_level: str = None):
         conn.row_factory = sqlite3.Row
         if isolation_level is not None:
             conn.isolation_level = isolation_level
+        # Auto-initialize tables if they don't exist
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='projections'")
+        if cursor.fetchone() is None:
+            conn.close()  # Close before init so _init_sqlite has exclusive access
+            _init_sqlite(user_id)
+            # Reconnect after initialization
+            conn = sqlite3.connect(db_path, timeout=5.0)
+            conn.row_factory = sqlite3.Row
+            if isolation_level is not None:
+                conn.isolation_level = isolation_level
         try:
             yield conn
         finally:
