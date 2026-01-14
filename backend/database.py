@@ -36,7 +36,7 @@ def _init_postgres() -> None:
                     event_type VARCHAR(100) NOT NULL,
                     payload JSONB NOT NULL,
                     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    schema_version INTEGER DEFAULT 1
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
