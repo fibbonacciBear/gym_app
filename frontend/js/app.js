@@ -43,6 +43,11 @@ function workoutApp() {
         // Exercise history cache (for showing previous values)
         exerciseHistoryCache: {},
 
+        // Personal Records state
+        showPRScreen: false,
+        allPersonalRecords: [],
+        prLoading: false,
+
         // Plan Builder state
         showPlanBuilder: false,
         showHistoryImport: false,
@@ -133,6 +138,18 @@ function workoutApp() {
         async loadCurrentWorkout() {
             try {
                 this.currentWorkout = await API.getProjection('current_workout');
+                // Debug: Log workout data to help diagnose set_groups issues
+                if (this.currentWorkout) {
+                    console.log('[DEBUG] Loaded currentWorkout:', JSON.stringify(this.currentWorkout, null, 2));
+                    this.currentWorkout.exercises?.forEach(ex => {
+                        console.log(`[DEBUG] Exercise ${ex.exercise_id}:`, {
+                            hasTemplateTargets: !!ex.template_targets,
+                            templateTargets: ex.template_targets,
+                            hasSetGroups: !!ex.template_targets?.set_groups,
+                            setGroupsLength: ex.template_targets?.set_groups?.length
+                        });
+                    });
+                }
             } catch (error) {
                 console.error('Failed to load current workout:', error);
             }
@@ -143,6 +160,215 @@ function workoutApp() {
             const exercise = this.allExercises.find(ex => ex.id === exerciseId);
             return exercise ? exercise.name : exerciseId;
         },
+
+        // ========== GUIDED WORKOUT HELPERS ==========
+
+        // Check if exercise has template targets (guided mode)
+        hasTemplateTargets(exercise) {
+            if (!exercise.template_targets) return false;
+            // Check for set_groups or single target
+            return this.usesSetGroups(exercise) || exercise.template_targets.target_sets > 0;
+        },
+
+        // Check if exercise uses set groups (new format)
+        usesSetGroups(exercise) {
+            return exercise.template_targets?.set_groups &&
+                   exercise.template_targets.set_groups.length > 0;
+        },
+
+        // Generate planned sets array for display (handles both old and new formats)
+        getPlannedSets(exercise) {
+            if (!this.hasTemplateTargets(exercise)) return [];
+
+            // NEW: Set groups format
+            if (this.usesSetGroups(exercise)) {
+                return this.getPlannedSetsFromGroups(exercise);
+            }
+
+            // OLD: Single target format (backward compat)
+            const targets = exercise.template_targets;
+            const plannedSets = [];
+
+            // Defensive: ensure target_sets is a valid positive number (default to 1)
+            const numSets = (targets.target_sets > 0) ? targets.target_sets : 1;
+            for (let i = 0; i < numSets; i++) {
+                plannedSets.push({
+                    setNumber: i + 1,
+                    targetWeight: targets.target_weight,
+                    targetReps: targets.target_reps,
+                    targetUnit: targets.target_unit || 'kg',
+                    setType: targets.set_type || 'standard',
+                    isFirstInGroup: i === 0,
+                    groupName: null
+                });
+            }
+
+            return plannedSets;
+        },
+
+        // Generate flat array of planned sets from set groups
+        getPlannedSetsFromGroups(exercise) {
+            if (!this.usesSetGroups(exercise)) return [];
+
+            const plannedSets = [];
+            let globalSetNumber = 1;
+
+            exercise.template_targets.set_groups.forEach((group, groupIndex) => {
+                // Defensive: ensure target_sets is a valid positive number (default to 1)
+                const numSets = (group.target_sets > 0) ? group.target_sets : 1;
+                for (let i = 0; i < numSets; i++) {
+                    plannedSets.push({
+                        setNumber: globalSetNumber++,
+                        groupIndex: groupIndex,
+                        groupName: group.notes || group.set_type || `Group ${groupIndex + 1}`,
+                        targetWeight: group.target_weight,
+                        targetReps: group.target_reps,
+                        targetUnit: group.target_unit || 'kg',
+                        setType: group.set_type || 'working',
+                        isFirstInGroup: i === 0
+                    });
+                }
+            });
+
+            return plannedSets;
+        },
+
+        // Get the next planned set to log (for quick logging)
+        getNextPlannedSet(exercise) {
+            const plannedSets = this.getPlannedSets(exercise);
+            const completedCount = exercise.sets?.length || 0;
+            return plannedSets[completedCount] || null;
+        },
+
+        // Get logged set for a specific planned set number
+        getLoggedSetForPlannedSet(exercise, setNumber) {
+            if (!exercise.sets || setNumber > exercise.sets.length) return null;
+            return exercise.sets[setNumber - 1];
+        },
+
+        // Check if a planned set is completed
+        isPlannedSetCompleted(exercise, setNumber) {
+            return setNumber <= (exercise.sets?.length || 0);
+        },
+
+        // Quick-log a set (checkbox click) - logs with target values from the next planned set
+        async quickLogPlannedSet(exerciseId) {
+            if (!this.currentWorkout) return;
+
+            const exercise = this.currentWorkout.exercises.find(ex => ex.exercise_id === exerciseId);
+            if (!exercise || !exercise.template_targets) return;
+
+            // Get the next planned set to determine weight/reps
+            const nextPlannedSet = this.getNextPlannedSet(exercise);
+            if (!nextPlannedSet) return;
+
+            // Validate that weight and reps are defined for quick-logging
+            if (!nextPlannedSet.targetWeight || nextPlannedSet.targetWeight <= 0) {
+                this.showStatus('Cannot quick-log: target weight not set. Use manual entry.', 'error');
+                return;
+            }
+            if (!nextPlannedSet.targetReps || nextPlannedSet.targetReps <= 0) {
+                this.showStatus('Cannot quick-log: target reps not set. Use manual entry.', 'error');
+                return;
+            }
+
+            try {
+                const result = await API.emitEvent('SetLogged', {
+                    workout_id: this.currentWorkout.id,
+                    exercise_id: exerciseId,
+                    weight: nextPlannedSet.targetWeight,
+                    reps: nextPlannedSet.targetReps,
+                    unit: nextPlannedSet.targetUnit || 'kg'
+                });
+
+                // Check for PR
+                if (result.derived && result.derived.is_pr) {
+                    const prType = result.derived.pr_type;
+                    let prMessage = '🏆 NEW PR! Set logged!';
+                    if (prType === 'weight') {
+                        prMessage = '🏆 NEW MAX WEIGHT PR! Set logged!';
+                    } else if (prType === 'volume') {
+                        prMessage = '🏆 NEW VOLUME PR! Set logged!';
+                    } else if (prType === 'estimated-1rm') {
+                        prMessage = '🏆 NEW ESTIMATED 1RM PR! Set logged!';
+                    } else if (prType && prType.includes('-rep')) {
+                        prMessage = `🏆 NEW ${prType.toUpperCase()} PR! Set logged!`;
+                    }
+                    this.showStatus(prMessage, 'success');
+                    delete this.exerciseHistoryCache[exerciseId];
+                } else {
+                    this.showStatus('Set logged!', 'success');
+                }
+
+                await this.loadCurrentWorkout();
+            } catch (error) {
+                this.showStatus('Failed to log set: ' + error.message, 'error');
+            }
+        },
+
+        // ========== TEMPLATE EDITOR SET GROUPS HELPERS ==========
+
+        // Add set group to exercise in template editor
+        addSetGroupToExercise(exerciseIndex) {
+            const exercise = this.templateEditorData.exercises[exerciseIndex];
+
+            // Initialize set_groups array if needed
+            const currentGroups = exercise.set_groups || [];
+
+            // Add new group with defaults
+            const newGroups = [...currentGroups, {
+                target_sets: 3,
+                target_reps: 10,
+                target_weight: null,
+                target_unit: 'kg',
+                set_type: 'working',
+                rest_seconds: 60,
+                notes: ''
+            }];
+
+            // Replace entire exercise object to trigger Alpine reactivity
+            this.templateEditorData.exercises[exerciseIndex] = {
+                ...exercise,
+                set_groups: newGroups
+            };
+        },
+
+        // Convert single-target to set groups format
+        convertToSetGroups(exerciseIndex) {
+            const exercise = this.templateEditorData.exercises[exerciseIndex];
+
+            // Create initial group from existing values
+            const newSetGroups = [{
+                target_sets: exercise.target_sets || 3,
+                target_reps: exercise.target_reps || 10,
+                target_weight: exercise.target_weight || null,
+                target_unit: exercise.target_unit || 'kg',
+                set_type: 'working',
+                rest_seconds: exercise.rest_seconds || 60,
+                notes: 'Working Sets'
+            }];
+
+            // Replace entire exercise object to trigger Alpine reactivity
+            this.templateEditorData.exercises[exerciseIndex] = {
+                ...exercise,
+                set_groups: newSetGroups
+            };
+        },
+
+        // Remove set group from exercise
+        removeSetGroup(exerciseIndex, groupIndex) {
+            const exercise = this.templateEditorData.exercises[exerciseIndex];
+            if (exercise.set_groups) {
+                const newGroups = exercise.set_groups.filter((_, i) => i !== groupIndex);
+                // Replace entire exercise object to trigger Alpine reactivity
+                this.templateEditorData.exercises[exerciseIndex] = {
+                    ...exercise,
+                    set_groups: newGroups.length > 0 ? newGroups : null
+                };
+            }
+        },
+
+        // ========== END GUIDED WORKOUT HELPERS ==========
 
         // Start a new workout (legacy - kept for backwards compat)
         async startWorkout() {
@@ -207,7 +433,8 @@ function workoutApp() {
                         target_weight: ex.target_weight || null,
                         target_unit: ex.target_unit || 'kg',
                         set_type: ex.set_type || 'standard',
-                        rest_seconds: ex.rest_seconds || 60
+                        rest_seconds: ex.rest_seconds || 60,
+                        set_groups: ex.set_groups || null  // Preserve set groups if they exist
                     }))
                 };
             } else {
@@ -246,7 +473,8 @@ function workoutApp() {
                     target_weight: avgWeight,
                     target_unit: ex.sets?.[0]?.unit || 'kg',
                     set_type: 'standard',
-                    rest_seconds: 60
+                    rest_seconds: 60,
+                    set_groups: null  // Initialize for Alpine.js reactivity
                 };
             });
 
@@ -273,7 +501,8 @@ function workoutApp() {
                 target_weight: null,
                 target_unit: 'kg',
                 set_type: 'standard',
-                rest_seconds: 60
+                rest_seconds: 60,
+                set_groups: null  // Initialize for Alpine.js reactivity
             });
 
             this.showExerciseSelectorForTemplate = false;
@@ -317,9 +546,11 @@ function workoutApp() {
                         target_weight: ex.target_weight || null,
                         target_unit: ex.target_unit || 'kg',
                         set_type: ex.set_type || 'standard',
-                        rest_seconds: ex.rest_seconds || 60
+                        rest_seconds: ex.rest_seconds || 60,
+                        set_groups: ex.set_groups || null  // Include set groups if present
                     }))
                 };
+                console.log('[DEBUG] Saving template with payload:', JSON.stringify(payload, null, 2));
 
                 if (this.editingTemplate) {
                     // Update existing template
@@ -331,7 +562,14 @@ function workoutApp() {
                     });
 
                     if (!response.ok) {
-                        throw new Error('Failed to update template');
+                        const text = await response.text();
+                        try {
+                            const error = JSON.parse(text);
+                            throw new Error(error.detail || 'Failed to update template');
+                        } catch (e) {
+                            if (e.message && !e.message.includes('JSON')) throw e;
+                            throw new Error(`Server error (${response.status})`);
+                        }
                     }
                     this.showStatus('Template updated!', 'success');
                 } else {
@@ -344,7 +582,14 @@ function workoutApp() {
                     });
 
                     if (!response.ok) {
-                        throw new Error('Failed to create template');
+                        const text = await response.text();
+                        try {
+                            const error = JSON.parse(text);
+                            throw new Error(error.detail || 'Failed to create template');
+                        } catch (e) {
+                            if (e.message && !e.message.includes('JSON')) throw e;
+                            throw new Error(`Server error (${response.status})`);
+                        }
                     }
                     this.showStatus('Template created!', 'success');
                 }
@@ -355,7 +600,7 @@ function workoutApp() {
                 await this.loadTemplates();
             } catch (error) {
                 console.error('Failed to save template:', error);
-                this.showStatus('Failed to save template', 'error');
+                this.showStatus(error.message || 'Failed to save template', 'error');
             }
         },
 
@@ -373,7 +618,14 @@ function workoutApp() {
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to delete template');
+                    const text = await response.text();
+                    try {
+                        const error = JSON.parse(text);
+                        throw new Error(error.detail || 'Failed to delete template');
+                    } catch (e) {
+                        if (e.message && !e.message.includes('JSON')) throw e;
+                        throw new Error(`Server error (${response.status})`);
+                    }
                 }
 
                 this.showStatus('Template deleted', 'success');
@@ -383,7 +635,7 @@ function workoutApp() {
                 await this.loadTemplates();
             } catch (error) {
                 console.error('Failed to delete template:', error);
-                this.showStatus('Failed to delete template', 'error');
+                this.showStatus(error.message || 'Failed to delete template', 'error');
             }
         },
 
@@ -448,7 +700,8 @@ function workoutApp() {
                                     target_weight: payload?.weight || payload?.target_weight || null,
                                     target_unit: payload?.unit || 'kg',
                                     set_type: 'standard',
-                                    rest_seconds: 60
+                                    rest_seconds: 60,
+                                    set_groups: null  // Initialize for Alpine.js reactivity
                                 });
                                 this.showStatus(`Added ${this.getExerciseName(exerciseId)}`, 'success');
                             } else {
@@ -602,7 +855,8 @@ function workoutApp() {
                                     target_weight: payload?.weight || payload?.target_weight || null,
                                     target_unit: payload?.unit || 'kg',
                                     set_type: 'standard',
-                                    rest_seconds: 60
+                                    rest_seconds: 60,
+                                    set_groups: null  // Initialize for Alpine.js reactivity
                                 });
 
                                 const msg = `Added ${this.getExerciseName(exerciseId)}`;
@@ -761,7 +1015,18 @@ function workoutApp() {
 
                 // Check for PR
                 if (result.derived && result.derived.is_pr) {
-                    this.showStatus('NEW PR! Set logged!', 'success');
+                    const prType = result.derived.pr_type;
+                    let prMessage = '🏆 NEW PR! Set logged!';
+                    if (prType === 'weight') {
+                        prMessage = '🏆 NEW MAX WEIGHT PR! Set logged!';
+                    } else if (prType === 'volume') {
+                        prMessage = '🏆 NEW VOLUME PR! Set logged!';
+                    } else if (prType === 'estimated-1rm') {
+                        prMessage = '🏆 NEW ESTIMATED 1RM PR! Set logged!';
+                    } else if (prType && prType.includes('-rep')) {
+                        prMessage = `🏆 NEW ${prType.toUpperCase()} PR! Set logged!`;
+                    }
+                    this.showStatus(prMessage, 'success');
                     // Invalidate cache so next fetch gets updated PR
                     delete this.exerciseHistoryCache[this.selectedExerciseId];
                 } else {
@@ -783,7 +1048,8 @@ function workoutApp() {
                 return;
             }
 
-            if (!confirm('Delete this set?')) {
+            // Confirm before deleting to prevent accidental data loss
+            if (!confirm('Delete this set? This cannot be undone.')) {
                 return;
             }
 
@@ -895,6 +1161,37 @@ function workoutApp() {
             }
         },
 
+        // Load all personal records
+        async loadPersonalRecords() {
+            this.prLoading = true;
+            try {
+                const headers = await API.getHeaders();
+                const response = await fetch('/api/personal-records', { headers });
+                if (!response.ok) {
+                    throw new Error('Failed to load personal records');
+                }
+                const data = await response.json();
+                this.allPersonalRecords = data.records || [];
+            } catch (error) {
+                console.error('Failed to load personal records:', error);
+                this.showStatus('Failed to load personal records', 'error');
+            } finally {
+                this.prLoading = false;
+            }
+        },
+
+        // Open Personal Records screen
+        async openPRScreen() {
+            this.showPRScreen = true;
+            await this.loadPersonalRecords();
+        },
+
+        // Format date for display
+        formatPRDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString();
+        },
+
         // Save current workout as a template
         async saveAsTemplate() {
             if (!this.templateName.trim() || !this.currentWorkout) {
@@ -902,7 +1199,23 @@ function workoutApp() {
                 return;
             }
 
-            const exerciseIds = this.currentWorkout.exercises.map(e => e.exercise_id);
+            // Convert workout exercises to template format with targets
+            const exercises = this.currentWorkout.exercises.map(ex => {
+                const avgWeight = ex.sets?.length ?
+                    ex.sets.reduce((sum, s) => sum + (s.weight || 0), 0) / ex.sets.length : null;
+                const avgReps = ex.sets?.length ?
+                    Math.round(ex.sets.reduce((sum, s) => sum + (s.reps || 0), 0) / ex.sets.length) : 10;
+
+                return {
+                    exercise_id: ex.exercise_id,
+                    target_sets: ex.sets?.length || 3,
+                    target_reps: avgReps,
+                    target_weight: avgWeight,
+                    target_unit: ex.sets?.[0]?.unit || 'kg',
+                    set_type: 'standard',
+                    rest_seconds: 60
+                };
+            });
 
             try {
                 const headers = await API.getHeaders();
@@ -911,12 +1224,19 @@ function workoutApp() {
                     headers,
                     body: JSON.stringify({
                         name: this.templateName.trim(),
-                        exercise_ids: exerciseIds
+                        exercises: exercises  // Use full exercise format with targets
                     })
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to save template');
+                    const text = await response.text();
+                    try {
+                        const error = JSON.parse(text);
+                        throw new Error(error.detail || 'Failed to save template');
+                    } catch (e) {
+                        if (e.message && !e.message.includes('JSON')) throw e;
+                        throw new Error(`Server error (${response.status})`);
+                    }
                 }
 
                 this.showStatus('Template saved!', 'success');
@@ -925,7 +1245,7 @@ function workoutApp() {
                 await this.loadTemplates();
             } catch (error) {
                 console.error('Failed to save template:', error);
-                this.showStatus('Failed to save template', 'error');
+                this.showStatus(error.message || 'Failed to save template', 'error');
             }
         },
 
