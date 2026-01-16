@@ -66,6 +66,27 @@ def _init_postgres() -> None:
                 )
             """)
 
+            # MIGRATION: Rename 'data' column to 'value' if it exists (backward compatibility)
+            # Check if the old 'data' column exists
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'projections' 
+                AND column_name = 'data'
+            """)
+            if cursor.fetchone():
+                # Old column exists, rename it
+                cursor.execute("""
+                    ALTER TABLE projections 
+                    RENAME COLUMN data TO value
+                """)
+                # Also drop NOT NULL constraint if it exists (new schema allows NULL)
+                cursor.execute("""
+                    ALTER TABLE projections 
+                    ALTER COLUMN value DROP NOT NULL
+                """)
+                print("✅ Migrated projections table: renamed 'data' column to 'value'")
+
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_projections_user_id
                 ON projections(user_id)
@@ -350,6 +371,59 @@ def get_projection(key: str, user_id: str = "default", conn=None) -> Optional[Di
         return _get_projection_postgres(key, user_id, conn)
     else:
         return _get_projection_sqlite(key, user_id, conn)
+
+
+def get_multiple_projections(keys: List[str], user_id: str = "default") -> Dict[str, Any]:
+    """
+    Batch fetch multiple projections in a single query.
+
+    Args:
+        keys: List of projection keys to fetch
+        user_id: User identifier
+
+    Returns:
+        Dict mapping keys to their projection data (missing keys not included)
+    """
+    if not keys:
+        return {}
+
+    if USE_POSTGRES:
+        return _get_multiple_projections_postgres(keys, user_id)
+    else:
+        return _get_multiple_projections_sqlite(keys, user_id)
+
+
+def _get_multiple_projections_postgres(keys: List[str], user_id: str) -> Dict[str, Any]:
+    """Batch fetch projections from PostgreSQL."""
+    with get_connection(user_id) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute(
+                "SELECT key, value FROM projections WHERE user_id = %s AND key = ANY(%s)",
+                (user_id, keys)
+            )
+            rows = cursor.fetchall()
+            result = {}
+            for row in rows:
+                data = row["value"]
+                if isinstance(data, (dict, list)):
+                    result[row["key"]] = data
+                elif data:
+                    result[row["key"]] = json.loads(data)
+            return result
+
+
+def _get_multiple_projections_sqlite(keys: List[str], user_id: str) -> Dict[str, Any]:
+    """Batch fetch projections from SQLite."""
+    with get_connection(user_id) as conn:
+        cursor = conn.cursor()
+        # SQLite doesn't have ANY(), use IN with placeholders
+        placeholders = ",".join("?" * len(keys))
+        cursor.execute(
+            f"SELECT key, data FROM projections WHERE key IN ({placeholders})",
+            keys
+        )
+        rows = cursor.fetchall()
+        return {row["key"]: json.loads(row["data"]) for row in rows}
 
 
 def _get_projection_postgres(key: str, user_id: str, conn=None) -> Optional[Dict[str, Any]]:

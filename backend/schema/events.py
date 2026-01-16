@@ -22,12 +22,38 @@ class WeightUnit(str, Enum):
     KG = "kg"
     LB = "lb"
 
+# Set group for advanced workout programming
+class SetGroup(BaseModel):
+    target_sets: int
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    target_unit: str = "kg"
+    set_type: str = "working"  # warmup, working, dropset, pyramid, other
+    rest_seconds: int = 60
+    notes: Optional[str] = None
+
+
+# Exercise plan for guided workouts (from templates)
+class ExercisePlan(BaseModel):
+    exercise_id: str
+    # NEW: set groups (takes precedence if present)
+    set_groups: Optional[List[SetGroup]] = None
+    # OLD: single-target fields (for backward compatibility)
+    target_sets: Optional[int] = None
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    target_unit: str = "kg"
+    set_type: str = "standard"
+    rest_seconds: int = 60
+    notes: Optional[str] = None
+
 # Payload models for each event type
 class WorkoutStartedPayload(BaseModel):
     workout_id: str = Field(default_factory=lambda: str(uuid4()))
     name: Optional[str] = None
     from_template_id: Optional[str] = None
     exercise_ids: Optional[List[str]] = None
+    exercise_plans: Optional[List[ExercisePlan]] = None  # For guided workouts
 
 class WorkoutCompletedPayload(BaseModel):
     workout_id: str
@@ -71,6 +97,9 @@ class SetType(str, Enum):
 class TemplateExercise(BaseModel):
     """Exercise within a template with target values."""
     exercise_id: str
+    # NEW: set groups (takes precedence if present)
+    set_groups: Optional[List[SetGroup]] = None
+    # OLD: single-target fields (for backward compatibility)
     target_sets: Optional[int] = Field(default=None, ge=1)
     target_reps: Optional[int] = Field(default=None, ge=1)
     target_weight: Optional[float] = Field(default=None, ge=0)

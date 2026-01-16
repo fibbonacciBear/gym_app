@@ -179,15 +179,40 @@ def build_context(user_id: str = "default") -> Dict[str, str]:
         focus = current.get("focus_exercise", "None")
         ex_list = ", ".join(e["exercise_id"] for e in current.get("exercises", []))
 
-        # Get previous session for focus exercise (for "same as last time")
+        # Get previous session for focus exercise (for "same as last time" and "add 5 pounds")
         previous_values = "None"
         if focus and focus != "None":
             history = get_projection(f"exercise_history:{focus}", user_id)
             if history and history.get("sessions"):
                 last_session = history["sessions"][0]
                 if last_session.get("sets"):
+                    # Provide structured data for easier LLM arithmetic
                     last_set = last_session["sets"][0]
-                    previous_values = f"{last_set.get('weight', 0)}{last_set.get('unit', 'kg')} x {last_set.get('reps', 0)}"
+                    weight = last_set.get('weight', 0)
+                    unit = last_set.get('unit', 'kg')
+                    reps = last_set.get('reps', 0)
+                    # Include all sets summary for context
+                    all_sets = [f"{s.get('weight', 0)}{s.get('unit', 'kg')} x {s.get('reps', 0)}" for s in last_session["sets"]]
+                    # Calculate weight progressions with proper unit handling
+                    if unit == 'kg':
+                        add_5lbs_result = weight + 2.27  # 5lbs = 2.27kg
+                        add_5kg_result = weight + 5
+                        progression_hint = (
+                            f"To add 5lbs (2.27kg): {add_5lbs_result:.1f}kg. "
+                            f"To add 5kg: {add_5kg_result:.1f}kg."
+                        )
+                    else:  # lbs
+                        add_5lbs_result = weight + 5
+                        add_5kg_result = weight + 11.02  # 5kg = 11.02lbs
+                        progression_hint = (
+                            f"To add 5lbs: {add_5lbs_result:.1f}lbs. "
+                            f"To add 5kg (11lbs): {add_5kg_result:.1f}lbs."
+                        )
+                    previous_values = (
+                        f"Last workout: Weight={weight}, Unit={unit}, Reps={reps}. "
+                        f"All sets: {', '.join(all_sets)}. "
+                        f"{progression_hint}"
+                    )
     else:
         workout_status = "None"
         workout_id = "None"

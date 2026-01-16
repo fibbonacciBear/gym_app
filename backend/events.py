@@ -1,4 +1,5 @@
 """Event handling and processing."""
+import logging
 from typing import Dict, Any, Optional, Tuple
 from uuid import uuid4
 import sqlite3
@@ -10,6 +11,8 @@ from backend.schema.events import (
     WorkoutStartedPayload,
     WorkoutCompletedPayload,
 )
+
+logger = logging.getLogger(__name__)
 
 class ConcurrencyConflictError(Exception):
     """Raised when a database lock conflict occurs due to concurrent operations."""
@@ -251,15 +254,50 @@ def update_projections(
             "exercises": []
         }
 
-        # If starting from template with exercises, add them
-        exercise_ids = payload.get("exercise_ids") or []
-        for ex_id in exercise_ids:
-            current_workout["exercises"].append({
-                "exercise_id": ex_id,
+        # Support both legacy (exercise_ids) and new (exercise_plans) formats
+        exercise_plans = payload.get("exercise_plans") or []
+        logger.debug(f"[WORKOUT_STARTED] exercise_plans count: {len(exercise_plans)}")
+        if not exercise_plans:
+            # Fallback to legacy format
+            exercise_ids = payload.get("exercise_ids") or []
+            exercise_plans = [{"exercise_id": ex_id} for ex_id in exercise_ids]
+
+        for plan in exercise_plans:
+            logger.debug(f"[WORKOUT_STARTED] Processing plan for exercise: {plan.get('exercise_id')}")
+            logger.debug(f"[WORKOUT_STARTED] Plan has set_groups: {plan.get('set_groups')}")
+            logger.debug(f"[WORKOUT_STARTED] Plan has target_sets: {plan.get('target_sets')}")
+
+            exercise_data = {
+                "exercise_id": plan.get("exercise_id"),
                 "sets": []
-            })
-        if exercise_ids:
-            current_workout["focus_exercise"] = exercise_ids[0]
+            }
+
+            # Store template targets if provided (for guided workout mode)
+            # NEW: Support set groups (takes precedence) - check for non-empty list
+            set_groups = plan.get("set_groups")
+            if set_groups and len(set_groups) > 0:
+                logger.debug(f"[WORKOUT_STARTED] Using set_groups for {plan.get('exercise_id')}: {set_groups}")
+                exercise_data["template_targets"] = {
+                    "set_groups": set_groups
+                }
+            # OLD: Single target format (backward compat)
+            elif plan.get("target_sets") is not None and plan.get("target_sets") > 0:
+                logger.debug(f"[WORKOUT_STARTED] Using single target for {plan.get('exercise_id')}")
+                exercise_data["template_targets"] = {
+                    "target_sets": plan.get("target_sets"),
+                    "target_reps": plan.get("target_reps"),
+                    "target_weight": plan.get("target_weight"),
+                    "target_unit": plan.get("target_unit", "kg"),
+                    "set_type": plan.get("set_type", "standard"),
+                    "rest_seconds": plan.get("rest_seconds", 60)
+                }
+            else:
+                logger.debug(f"[WORKOUT_STARTED] No targets found for {plan.get('exercise_id')}, set_groups={set_groups}, target_sets={plan.get('target_sets')}")
+
+            current_workout["exercises"].append(exercise_data)
+
+        if exercise_plans:
+            current_workout["focus_exercise"] = exercise_plans[0].get("exercise_id")
 
         _set_projection("current_workout", current_workout)
 
@@ -378,13 +416,28 @@ def update_projections(
         # Normalize weight to kg for PR comparison
         weight_kg = weight if unit == "kg" else weight * 0.453592
 
-        # Check for PR (highest weight for any rep count, or highest reps at a weight)
+        # Calculate estimated 1RM using Epley formula: 1RM = weight × (1 + reps/30)
+        # Only calculate for reps > 1 (if reps == 1, e1rm = weight)
+        if reps == 1:
+            estimated_1rm_kg = weight_kg
+        else:
+            estimated_1rm_kg = weight_kg * (1 + reps / 30)
+
+        # Check for PR (highest weight for any rep count, highest reps at a weight, and rep-specific PRs)
         pr_key = f"personal_records:{exercise_id}"
         records = _get_projection(pr_key) or {
             "exercise_id": exercise_id,
             "max_weight": {"weight": 0, "weight_kg": 0, "reps": 0, "unit": "kg", "date": None},
-            "max_volume": {"weight": 0, "weight_kg": 0, "reps": 0, "unit": "kg", "date": None, "volume": 0}
+            "max_volume": {"weight": 0, "weight_kg": 0, "reps": 0, "unit": "kg", "date": None, "volume": 0},
+            "estimated_1rm": {"weight": 0, "weight_kg": 0, "e1rm_kg": 0, "reps": 0, "unit": "kg", "date": None},
+            "by_rep_count": {}  # Track best weight for specific rep counts
         }
+
+        # Ensure fields exist (for old records)
+        if "by_rep_count" not in records:
+            records["by_rep_count"] = {}
+        if "estimated_1rm" not in records:
+            records["estimated_1rm"] = {"weight": 0, "weight_kg": 0, "e1rm_kg": 0, "reps": 0, "unit": "kg", "date": None}
 
         is_pr = False
         pr_type = None
@@ -415,6 +468,37 @@ def update_projections(
             if not is_pr:  # Only set if not already a weight PR
                 is_pr = True
                 pr_type = "volume"
+
+        # Check estimated 1RM PR (Epley formula)
+        if estimated_1rm_kg > records["estimated_1rm"].get("e1rm_kg", 0):
+            records["estimated_1rm"] = {
+                "weight": weight,
+                "weight_kg": weight_kg,
+                "e1rm_kg": round(estimated_1rm_kg, 1),
+                "e1rm": round(estimated_1rm_kg if unit == "kg" else estimated_1rm_kg / 0.453592, 1),
+                "reps": reps,
+                "unit": unit,
+                "date": timestamp
+            }
+            if not is_pr:  # Only set if not already another PR type
+                is_pr = True
+                pr_type = "estimated-1rm"
+
+        # Check rep-specific PR (best weight for this rep count)
+        # Only track for reasonable rep ranges (1-20) to prevent unbounded growth
+        if 1 <= reps <= 20:
+            rep_count_key = str(reps)  # Use string key for JSON compatibility
+            current_rep_pr = records["by_rep_count"].get(rep_count_key, {})
+            if weight_kg > current_rep_pr.get("weight_kg", 0):
+                records["by_rep_count"][rep_count_key] = {
+                    "weight": weight,
+                    "weight_kg": weight_kg,
+                    "unit": unit,
+                    "date": timestamp
+                }
+                if not is_pr:  # Only set if not already another PR type
+                    is_pr = True
+                    pr_type = f"{reps}-rep"
 
         if is_pr:
             _set_projection(pr_key, records)
@@ -511,7 +595,8 @@ def update_projections(
                     "target_unit": ex_dict.get("target_unit", "kg"),
                     "set_type": ex_dict.get("set_type", "standard"),
                     "rest_seconds": ex_dict.get("rest_seconds", 60),
-                    "notes": ex_dict.get("notes")
+                    "notes": ex_dict.get("notes"),
+                    "set_groups": ex_dict.get("set_groups")  # Support advanced set groups
                 })
                 legacy_exercise_ids.append(ex_dict.get("exercise_id"))
 
@@ -580,7 +665,8 @@ def update_projections(
                             "target_unit": ex_dict.get("target_unit", "kg"),
                             "set_type": ex_dict.get("set_type", "standard"),
                             "rest_seconds": ex_dict.get("rest_seconds", 60),
-                            "notes": ex_dict.get("notes")
+                            "notes": ex_dict.get("notes"),
+                            "set_groups": ex_dict.get("set_groups")  # Support advanced set groups
                         })
                         legacy_exercise_ids.append(ex_dict.get("exercise_id"))
                     template["exercises"] = exercises

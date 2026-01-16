@@ -209,6 +209,50 @@ async def get_exercise_history(
         "last_session": last_session
     }
 
+
+@app.get("/api/personal-records")
+async def get_all_personal_records(user_id: str = Depends(get_current_user)):
+    """Get all personal records for all exercises. Requires authentication."""
+    from backend.database import get_exercises, get_multiple_projections
+
+    try:
+        # Get all exercises
+        exercises = get_exercises(user_id, include_shared=True)
+
+        # Build list of PR keys to fetch
+        pr_keys = [f"personal_records:{ex['id']}" for ex in exercises]
+
+        # Batch fetch all PR projections in a single query
+        all_pr_data = get_multiple_projections(pr_keys, user_id=user_id)
+
+        # Build response with exercises that have PRs
+        all_records = []
+        for exercise in exercises:
+            exercise_id = exercise["id"]
+            pr_key = f"personal_records:{exercise_id}"
+            records = all_pr_data.get(pr_key)
+
+            if records and (records.get("max_weight", {}).get("weight", 0) > 0 or
+                           records.get("max_volume", {}).get("volume", 0) > 0 or
+                           records.get("estimated_1rm", {}).get("e1rm_kg", 0) > 0):
+                all_records.append({
+                    "exercise_id": exercise_id,
+                    "exercise_name": exercise["name"],
+                    "category": exercise.get("category"),
+                    "max_weight": records.get("max_weight"),
+                    "max_volume": records.get("max_volume"),
+                    "estimated_1rm": records.get("estimated_1rm"),
+                    "by_rep_count": records.get("by_rep_count", {})
+                })
+
+        # Sort by exercise name
+        all_records.sort(key=lambda x: x["exercise_name"])
+
+        return {"records": all_records}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch personal records: {str(e)}")
+
+
 # Serve frontend
 FRONTEND_DIR = BASE_DIR / "frontend"
 
