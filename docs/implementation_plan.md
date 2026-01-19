@@ -5,8 +5,10 @@
 This document provides a detailed, sprint-by-sprint implementation plan for building the voice-first workout tracker MVP. Each sprint delivers customer-facing value and builds on previous sprints.
 
 **Target Executor:** Claude Code (Claude 4.5 Sonnet)
-**Total Sprints:** 8
-**Estimated Duration:** 11 days
+**Total Sprints:** 11 (including Sprint 9.5)
+**Estimated Duration:** ~19 days
+
+> **Note (Dec 2024):** Sprints 7-8 were restructured to prioritize core workout execution and program planning features. The original Tutorial and Analytics sprints were moved to Sprints 10-11. Sprint 9.5 was added for the Progressive Overload system.
 
 ---
 
@@ -30,10 +32,12 @@ Create this directory structure before starting:
 │   ├── projections.py            # Projection calculations
 │   ├── aggregates.py             # Aggregate calculations
 │   ├── llm.py                    # LLM integration
+│   ├── progression.py            # Progression logic (Sprint 9.5)
 │   ├── schema/
 │   │   ├── __init__.py
 │   │   ├── events.py             # Event type definitions
-│   │   └── validation.py         # Schema validation
+│   │   ├── validation.py         # Schema validation
+│   │   └── progression.py        # Progression rule definitions (Sprint 9.5)
 │   └── api/
 │       ├── __init__.py
 │       ├── events.py             # Event endpoints
@@ -41,7 +45,9 @@ Create this directory structure before starting:
 │       ├── templates.py          # Template endpoints
 │       ├── exercises.py          # Exercise endpoints
 │       ├── stats.py              # Stats endpoints
-│       └── voice.py              # Voice processing endpoint
+│       ├── voice.py              # Voice processing endpoint
+│       ├── programs.py           # Programs & week templates (Sprint 9)
+│       └── library.py            # Pre-built template library (Sprint 9)
 ├── frontend/
 │   ├── index.html                # Main HTML file
 │   ├── css/
@@ -52,7 +58,8 @@ Create this directory structure before starting:
 │       ├── api.js                # API client
 │       └── tutorial.js           # Tutorial logic
 ├── data/
-│   └── exercises.json            # Default exercise library
+│   ├── exercises.json            # Default exercise library
+│   └── template_library.json    # Pre-built programs (Sprint 9)
 ├── tests/
 │   ├── __init__.py
 │   ├── test_events.py
@@ -2283,75 +2290,1862 @@ Implementation details are similar to previous sprints. Key additions:
 
 ---
 
-## Sprint 7: Tutorial
+## Sprint 7: Home Screen Redesign + Template Enhancement
 
 ### Goal
-Guided mock workout for new users
+Restructure the app around a clear workflow: Plan → Execute → Track. Create a 3-button home screen that separates workout planning from workout execution.
 
-### Duration: 1 day
+### Duration: 2 days
 
-### Dependencies: Sprint 5 (voice), Sprint 6 (smart features)
+### Dependencies: Sprint 4 (templates), Sprint 5 (voice), Sprint 6 (smart features)
 
-### Key Deliverables
+### Background: The Problem
 
-1. **Tutorial state machine** - 9-step flow
-2. **Sandbox mode** - Events not persisted (use `X-Tutorial-Mode: true` header)
-3. **Tutorial UI overlay** - Prompts and guidance
-4. **First-launch detection** - Show tutorial option
+The current app conflates two distinct concepts:
+1. **Workout Template Creation** - Defining *what* a workout should include
+2. **Workout Execution** - Actually *performing* the workout and recording progress
 
-See `technical_specification.md` "Interactive Tutorial System" section for full implementation details.
-
-### Important: Sandbox Cleanup
-
-When tutorial completes (step 9 or user exits early), **always clean up sandbox state**:
-
-```python
-# In tutorial completion endpoint
-def complete_tutorial(user_id: str):
-    # Clear server-side sandbox data
-    clear_sandbox_events(user_id)
-    
-    # Tell frontend to clear localStorage tutorial state
-    return {"status": "complete", "clear_local_state": True}
-```
-
-```javascript
-// In frontend
-async function completeTutorial() {
-    const response = await fetch('/api/tutorial/complete', { method: 'POST' });
-    const data = await response.json();
-    
-    if (data.clear_local_state) {
-        localStorage.removeItem('tutorial_step');
-        localStorage.removeItem('tutorial_started');
-    }
-    
-    // Redirect to normal mode
-    window.location.href = '/';
-}
-```
-
-This prevents sandbox state from accidentally leaking into normal workout mode.
+Users need a clear mental model: "Plan Builder" for designing workouts, "Execution Mode" for doing them.
 
 ---
 
-## Sprint 8: Analytics + Export + Polish
+### Deliverables
+
+#### 7.1 New Home Screen UI
+
+**Update `frontend/index.html`** - Replace the current start buttons with three distinct options:
+
+```html
+<!-- Home Screen - Not in workout -->
+<div x-show="!workoutActive" class="space-y-4">
+    
+    <!-- Primary CTA: Today's Workout -->
+    <button 
+        @click="startTodaysWorkout()"
+        class="w-full bg-green-600 hover:bg-green-700 py-6 rounded-xl font-bold text-lg"
+        :disabled="!todaysWorkoutTemplate"
+    >
+        <div class="text-xl">📅 Today's Workout</div>
+        <div class="text-sm opacity-80 mt-1" x-text="getTodaysWorkoutSubtitle()"></div>
+    </button>
+    
+    <!-- Secondary: Plan Builder -->
+    <button 
+        @click="openPlanBuilder()"
+        class="w-full bg-gray-700 hover:bg-gray-600 py-4 rounded-xl font-semibold"
+    >
+        🛠️ Plan Builder
+    </button>
+    
+    <!-- Tertiary: Quick Start -->
+    <button 
+        @click="startQuickWorkout()"
+        class="w-full bg-gray-800 hover:bg-gray-700 py-4 rounded-xl border border-gray-600"
+    >
+        ⚡ Quick Start
+    </button>
+    
+</div>
+```
+
+**Button Behaviors:**
+
+| Button | User Intent | Action |
+|--------|-------------|--------|
+| **Today's Workout** | "I have a plan, execute it" | Load scheduled template into Execution Mode |
+| **Plan Builder** | "I want to design/edit programs" | Open planning modal |
+| **Quick Start** | "Just let me lift" | Start empty workout, add exercises ad-hoc |
+
+#### 7.2 Remove "Save as Template" from Execution
+
+**Update `frontend/index.html`** - Remove the "Save as Template" button from the active workout section.
+
+**Rationale:** Template creation belongs in Plan Builder, not during active workouts. This reduces cognitive load and keeps execution focused on the NOW.
+
+**Alternative workflow:** Users can create templates from past workouts via Plan Builder → "Import from History".
+
+#### 7.3 Enhanced Template Schema with Defaults
+
+**Update `backend/schema/events.py`** - Add new payload model:
+
+```python
+class TemplateExercise(BaseModel):
+    """An exercise within a template, with optional defaults."""
+    exercise_id: str
+    target_sets: Optional[int] = None       # e.g., 4
+    target_reps: Optional[int] = None       # e.g., 8
+    target_weight: Optional[float] = None   # e.g., 185.0 (can be null for shareable templates)
+    target_rpe: Optional[float] = None      # e.g., 8.0 (Rate of Perceived Exertion)
+    rest_seconds: Optional[int] = None      # e.g., 90
+    set_type: Optional[str] = "standard"    # "standard", "amrap", "warmup", "dropset"
+    notes: Optional[str] = None             # e.g., "Control the descent"
+    progression: Optional[Dict[str, Any]] = None  # Optional per-exercise progression override
+
+class TemplateCreatedPayload(BaseModel):
+    template_id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    # CHANGE: from List[str] to List[TemplateExercise]
+    exercises: List[TemplateExercise]
+    source_workout_id: Optional[str] = None
+    
+    # For backwards compatibility, also accept exercise_ids
+    exercise_ids: Optional[List[str]] = None
+    
+    # Template-level default progression
+    default_progression: Optional[Dict[str, Any]] = None
+
+class TemplateUpdatedPayload(BaseModel):
+    template_id: str
+    name: Optional[str] = None
+    exercises: Optional[List[TemplateExercise]] = None
+    exercise_ids: Optional[List[str]] = None  # Backwards compat
+```
+
+**Update `backend/events.py`** - Handle both old and new template formats:
+
+```python
+elif event_type == EventType.TEMPLATE_CREATED:
+    templates = get_projection("templates", user_id) or []
+    
+    # Handle both old format (exercise_ids) and new format (exercises)
+    exercises = []
+    if payload.get("exercises"):
+        # New format: full exercise objects
+        exercises = payload["exercises"]
+    elif payload.get("exercise_ids"):
+        # Old format: just IDs, convert to minimal objects
+        exercises = [{"exercise_id": eid} for eid in payload["exercise_ids"]]
+    
+    template = {
+        "id": payload["template_id"],
+        "name": payload["name"],
+        "exercises": exercises,
+        "exercise_ids": [e.get("exercise_id") or e for e in exercises],  # Backwards compat
+        "default_progression": payload.get("default_progression"),
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "last_used_at": None,
+        "use_count": 0
+    }
+    templates.append(template)
+    set_projection("templates", templates, user_id)
+```
+
+#### 7.4 Plan Builder Modal
+
+**Add to `frontend/index.html`**:
+
+```html
+<!-- Plan Builder Modal -->
+<div x-show="showPlanBuilder" class="fixed inset-0 bg-black/80 z-50 overflow-y-auto">
+    <div class="container mx-auto px-4 py-6 max-w-lg">
+        
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold">🛠️ Plan Builder</h2>
+            <button @click="showPlanBuilder = false" class="text-gray-400 text-2xl">&times;</button>
+        </div>
+        
+        <div class="space-y-4">
+            <!-- Create New Template -->
+            <button 
+                @click="startNewTemplate()"
+                class="w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left"
+            >
+                <div class="font-semibold">➕ Create New Template</div>
+                <div class="text-sm text-gray-400">Build a workout from scratch</div>
+            </button>
+            
+            <!-- Import from History -->
+            <button 
+                @click="showImportFromHistory = true"
+                class="w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left"
+            >
+                <div class="font-semibold">📥 Import from History</div>
+                <div class="text-sm text-gray-400">Convert a past workout into a template</div>
+            </button>
+            
+            <!-- Edit Existing Templates -->
+            <button 
+                @click="showEditTemplates = true"
+                class="w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left"
+            >
+                <div class="font-semibold">✏️ Edit Templates</div>
+                <div class="text-sm text-gray-400">Modify your saved templates</div>
+            </button>
+            
+            <!-- Weekly Schedule (Sprint 9) -->
+            <!-- NOTE: Hide/disable until Sprint 9 implementation -->
+            <button 
+                @click="showWeeklyCalendar = true"
+                x-show="false"
+                disabled
+                class="w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left opacity-50 cursor-not-allowed"
+            >
+                <div class="font-semibold">📅 Weekly Schedule <span class="text-xs">(Sprint 9)</span></div>
+                <div class="text-sm text-gray-400">Plan your training week</div>
+            </button>
+            
+            <!-- Browse Program Library (Sprint 9) -->
+            <!-- NOTE: Hide/disable until Sprint 9 implementation -->
+            <button 
+                @click="showLibraryBrowser = true"
+                x-show="false"
+                disabled
+                class="w-full bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left opacity-50 cursor-not-allowed"
+            >
+                <div class="font-semibold">📚 Program Library <span class="text-xs">(Sprint 9)</span></div>
+                <div class="text-sm text-gray-400">Browse pre-built programs (StrongLifts, PPL, etc.)</div>
+            </button>
+        </div>
+    </div>
+</div>
+```
+
+#### 7.5 Template Editor UI
+
+**Add to `frontend/index.html`**:
+
+```html
+<!-- Template Editor Modal -->
+<div x-show="showTemplateEditor" class="fixed inset-0 bg-gray-900 z-50 overflow-y-auto">
+    <div class="container mx-auto px-4 py-6 max-w-lg">
+        
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold" x-text="editingTemplate ? 'Edit Template' : 'New Template'"></h2>
+            <button @click="closeTemplateEditor()" class="text-gray-400 text-2xl">&times;</button>
+        </div>
+        
+        <!-- Template Name -->
+        <input 
+            type="text"
+            x-model="templateEditorData.name"
+            placeholder="Template name (e.g., Push Day)"
+            class="w-full bg-gray-800 rounded-lg px-4 py-3 mb-4"
+        >
+        
+        <!-- Exercises List -->
+        <div class="space-y-3 mb-4">
+            <template x-for="(exercise, index) in templateEditorData.exercises" :key="index">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="flex justify-between items-start mb-3">
+                        <select 
+                            x-model="exercise.exercise_id"
+                            class="bg-gray-700 rounded px-3 py-2 flex-1 mr-2"
+                        >
+                            <option value="">Select exercise...</option>
+                            <template x-for="ex in exercises" :key="ex.id">
+                                <option :value="ex.id" x-text="ex.name"></option>
+                            </template>
+                        </select>
+                        <button @click="removeExerciseFromTemplate(index)" class="text-red-400">✕</button>
+                    </div>
+                    
+                    <!-- Target Values -->
+                    <div class="grid grid-cols-3 gap-2 text-sm">
+                        <div>
+                            <label class="text-gray-400 block mb-1">Sets</label>
+                            <input type="number" x-model.number="exercise.target_sets" 
+                                class="w-full bg-gray-700 rounded px-2 py-1" placeholder="4">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 block mb-1">Reps</label>
+                            <input type="number" x-model.number="exercise.target_reps"
+                                class="w-full bg-gray-700 rounded px-2 py-1" placeholder="8">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 block mb-1">Weight</label>
+                            <input type="number" x-model.number="exercise.target_weight"
+                                class="w-full bg-gray-700 rounded px-2 py-1" placeholder="135">
+                        </div>
+                    </div>
+                    
+                    <!-- AMRAP Toggle -->
+                    <div class="mt-2">
+                        <label class="flex items-center text-sm">
+                            <input type="checkbox" x-model="exercise.is_amrap" class="mr-2">
+                            <span>Last set is AMRAP (As Many Reps As Possible)</span>
+                        </label>
+                    </div>
+                </div>
+            </template>
+        </div>
+        
+        <button 
+            @click="addExerciseToTemplate()"
+            class="w-full bg-gray-800 hover:bg-gray-700 py-3 rounded-lg mb-4"
+        >
+            + Add Exercise
+        </button>
+        
+        <button 
+            @click="saveTemplate()"
+            class="w-full bg-green-600 hover:bg-green-700 py-4 rounded-xl font-bold"
+        >
+            Save Template
+        </button>
+    </div>
+</div>
+```
+
+**Add to `frontend/js/app.js`**:
+
+```javascript
+// Add to Alpine data
+showPlanBuilder: false,
+showTemplateEditor: false,
+showImportFromHistory: false,
+showEditTemplates: false,
+showWeeklyCalendar: false,        // Sprint 9
+showLibraryBrowser: false,        // Sprint 9
+activeProgram: null,              // Sprint 9
+todaysWorkoutTemplate: null,      // Sprint 9
+editingTemplate: null,
+templateEditorData: {
+    name: '',
+    exercises: []
+},
+
+// Methods
+openPlanBuilder() {
+    this.showPlanBuilder = true;
+},
+
+startNewTemplate() {
+    this.editingTemplate = null;
+    this.templateEditorData = {
+        name: '',
+        exercises: [{ exercise_id: '', target_sets: 4, target_reps: 8, target_weight: null }]
+    };
+    this.showPlanBuilder = false;
+    this.showTemplateEditor = true;
+},
+
+editTemplate(template) {
+    this.editingTemplate = template;
+    this.templateEditorData = {
+        name: template.name,
+        exercises: template.exercises.map(e => ({
+            exercise_id: e.exercise_id || e,
+            target_sets: e.target_sets || 4,
+            target_reps: e.target_reps || 8,
+            target_weight: e.target_weight || null,
+            is_amrap: e.set_type === 'amrap'
+        }))
+    };
+    this.showEditTemplates = false;
+    this.showTemplateEditor = true;
+},
+
+addExerciseToTemplate() {
+    this.templateEditorData.exercises.push({
+        exercise_id: '',
+        target_sets: 4,
+        target_reps: 8,
+        target_weight: null
+    });
+},
+
+removeExerciseFromTemplate(index) {
+    this.templateEditorData.exercises.splice(index, 1);
+},
+
+closeTemplateEditor() {
+    this.showTemplateEditor = false;
+    this.editingTemplate = null;
+},
+
+async saveTemplate() {
+    if (!this.templateEditorData.name) {
+        this.showStatus('Please enter a template name', 'error');
+        return;
+    }
+    
+    const exercises = this.templateEditorData.exercises
+        .filter(e => e.exercise_id)
+        .map(e => ({
+            exercise_id: e.exercise_id,
+            target_sets: e.target_sets || null,
+            target_reps: e.target_reps || null,
+            target_weight: e.target_weight || null,
+            set_type: e.is_amrap ? 'amrap' : 'standard'
+        }));
+    
+    if (exercises.length === 0) {
+        this.showStatus('Please add at least one exercise', 'error');
+        return;
+    }
+    
+    try {
+        const endpoint = this.editingTemplate 
+            ? `/api/templates/${this.editingTemplate.id}`
+            : '/api/templates';
+        const method = this.editingTemplate ? 'PUT' : 'POST';
+        
+        await fetch(endpoint, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: this.templateEditorData.name,
+                exercises: exercises
+            })
+        });
+        
+        this.showStatus('Template saved!', 'success');
+        this.closeTemplateEditor();
+        await this.loadTemplates();
+    } catch (error) {
+        this.showStatus('Failed to save template', 'error');
+    }
+},
+
+async importWorkoutAsTemplate(workoutId) {
+    // Find workout in history
+    const workout = this.workoutHistory.find(w => w.id === workoutId);
+    if (!workout) return;
+    
+    this.templateEditorData = {
+        name: `Imported: ${new Date(workout.started_at).toLocaleDateString()}`,
+        exercises: workout.exercises.map(e => ({
+            exercise_id: e.exercise_id,
+            target_sets: e.sets?.length || 3,
+            target_reps: e.sets?.[0]?.reps || 8,
+            target_weight: e.sets?.[0]?.weight || null
+        }))
+    };
+    this.showImportFromHistory = false;
+    this.showPlanBuilder = false;
+    this.showTemplateEditor = true;
+},
+
+startQuickWorkout() {
+    // Start empty workout - user adds exercises as they go
+    this.startWorkout();
+},
+
+async startTodaysWorkout() {
+    if (this.todaysWorkoutTemplate) {
+        await this.startWorkoutFromTemplate(this.todaysWorkoutTemplate.id);
+    }
+},
+
+getTodaysWorkoutSubtitle() {
+    if (!this.activeProgram) {
+        return 'No program active – tap Plan Builder to create one';
+    }
+    if (this.todaysWorkoutTemplate) {
+        const exerciseCount = this.todaysWorkoutTemplate.exercises?.length || 0;
+        return `${this.todaysWorkoutTemplate.name} • ${exerciseCount} exercises`;
+    }
+    return 'Rest Day 😴';
+}
+```
+
+#### 7.6 Voice Integration for Plan Builder
+
+**Update `backend/llm.py`** - Add mode-aware prompts:
+
+```python
+PLAN_BUILDER_PROMPT = """You are a workout planning assistant. The user is DESIGNING a workout template, not executing one.
+
+Help them:
+- Add exercises with sets/reps/weight targets
+- Modify exercise parameters
+- Remove exercises
+- Set progression rules
+
+Current template being edited:
+{template_context}
+
+Respond with structured actions to modify the template."""
+
+PLAN_BUILDER_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "add_exercise_to_template",
+            "description": "Add an exercise to the template being edited",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "exercise_id": {"type": "string"},
+                    "target_sets": {"type": "integer"},
+                    "target_reps": {"type": "integer"},
+                    "target_weight": {"type": "number", "nullable": True}
+                },
+                "required": ["exercise_id", "target_sets", "target_reps"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_exercise_in_template",
+            "description": "Update an exercise's parameters in the template",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "exercise_index": {"type": "integer"},
+                    "target_sets": {"type": "integer"},
+                    "target_reps": {"type": "integer"},
+                    "target_weight": {"type": "number", "nullable": True}
+                },
+                "required": ["exercise_index"]
+            }
+        }
+    }
+]
+
+def get_voice_system_prompt(mode: str, context: dict = None) -> str:
+    """Get the appropriate system prompt based on current mode."""
+    if mode == "plan_builder":
+        return PLAN_BUILDER_PROMPT.format(template_context=context or {})
+    elif mode == "execution":
+        return EXECUTION_PROMPT.format(workout_context=context or {})  # Sprint 8
+    else:
+        return SYSTEM_PROMPT  # Default freestyle mode
+```
+
+**Update `frontend/js/app.js`** - Detect mode and send with voice request:
+
+```javascript
+async handleVoiceResult(transcript) {
+    // Detect current mode based on UI state
+    let mode = 'freestyle';
+    if (this.showTemplateEditor) {
+        mode = 'plan_builder';
+    } else if (this.workoutActive && this.executionMode) {
+        mode = 'execution';
+    }
+    
+    const response = await fetch('/api/voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            transcript,
+            mode,
+            context: this.getContextForMode(mode)
+        })
+    });
+    // ... handle response
+}
+```
+
+---
+
+### Sprint 7: Test Criteria
+
+```bash
+# 1. Home screen shows 3 buttons
+# Expected: "Today's Workout", "Plan Builder", "Quick Start"
+
+# 2. Click "Plan Builder"
+# Expected: Modal opens with options: Create New, Import from History, Edit Templates
+# NOTE: Weekly Schedule and Program Library buttons hidden (x-show="false") until Sprint 9
+
+# 3. Click "Create New Template"
+# Expected: Template editor opens with name field and exercise list
+
+# 4. Add 3 exercises with sets/reps/weights, save
+# Expected: Template saved, visible in templates list
+
+# 5. Click "Quick Start"
+# Expected: Empty workout starts, can add exercises manually
+
+# 6. "Save as Template" button should NOT appear during active workout
+
+# 7. Voice in template editor (optional for Sprint 7)
+# Say "add bench press 4 sets of 8 reps"
+# Expected: Exercise added to template with those values
+```
+
+### Sprint 7: Definition of Done
+
+- [ ] Home screen has 3 distinct buttons with clear purposes
+- [ ] Plan Builder modal opens with Create New, Import from History, Edit Templates options
+- [ ] Weekly Schedule and Program Library buttons are hidden (`x-show="false"`) until Sprint 9
+- [ ] Can create templates with target sets/reps/weights (null weights allowed)
+- [ ] Can edit existing templates
+- [ ] Can import workouts from history as templates
+- [ ] "Save as Template" removed from execution screen
+- [ ] Templates support both old format (`exercise_ids`) and new format (`exercises`) for backwards compatibility
+- [ ] Voice commands work in Plan Builder mode (mode-aware LLM prompts)
+
+---
+
+## Sprint 8: Guided Workout Execution
+
+### Goal
+Create a guided "live workout" experience where users execute a template and track set completion in real-time.
+
+### Duration: 2 days
+
+### Dependencies: Sprint 7 (enhanced templates)
+
+### Background
+
+When a user starts a workout from a template, they should see:
+- All exercises with target sets/reps/weights
+- Ability to mark each set as completed/failed/skipped
+- Rest timer between sets
+- Progress indicator
+- Workout summary on completion
+
+---
+
+### Deliverables
+
+#### 8.1 Set Status Tracking - Backend Schema
+
+**Update `backend/schema/events.py`**:
+
+```python
+class SetStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+class SetLoggedPayload(BaseModel):
+    """Enhanced set logging with status tracking."""
+    exercise_id: str
+    set_number: int
+    set_type: str = "standard"  # "standard", "amrap", "warmup"
+    status: SetStatus = SetStatus.COMPLETED
+    
+    # Targets (from template)
+    target_reps: Optional[int] = None
+    target_weight: Optional[float] = None
+    
+    # Actuals (what user did)
+    actual_reps: Optional[int] = None  # Replaces 'reps'
+    actual_weight: Optional[float] = None  # Replaces 'weight'
+    
+    # For backwards compat
+    reps: Optional[int] = None
+    weight: Optional[float] = None
+    
+    rpe: Optional[float] = None  # Rate of Perceived Exertion 1-10
+    notes: Optional[str] = None
+
+class SetStatusUpdatedPayload(BaseModel):
+    """Update status of a previously logged set."""
+    exercise_id: str
+    set_number: int
+    status: SetStatus
+    actual_reps: Optional[int] = None
+    actual_weight: Optional[float] = None
+
+# Add to EventType enum
+class EventType(str, Enum):
+    # ... existing ...
+    SET_STATUS_UPDATED = "SetStatusUpdated"
+```
+
+#### 8.2 Update Current Workout Projection
+
+**Update `backend/events.py`** - Track set status in projection:
+
+```python
+elif event_type == EventType.SET_LOGGED:
+    workout = get_projection("current_workout", user_id)
+    if not workout:
+        return
+    
+    exercise_id = payload["exercise_id"]
+    set_number = payload.get("set_number", 1)
+    
+    # Find or create exercise in workout
+    exercise = next((e for e in workout["exercises"] if e["exercise_id"] == exercise_id), None)
+    if not exercise:
+        exercise = {"exercise_id": exercise_id, "sets": []}
+        workout["exercises"].append(exercise)
+    
+    # Add set with status tracking
+    set_data = {
+        "set_number": set_number,
+        "status": payload.get("status", "completed"),
+        "target_reps": payload.get("target_reps"),
+        "target_weight": payload.get("target_weight"),
+        "actual_reps": payload.get("actual_reps") or payload.get("reps"),
+        "actual_weight": payload.get("actual_weight") or payload.get("weight"),
+        "rpe": payload.get("rpe"),
+        "logged_at": datetime.utcnow().isoformat() + "Z"
+    }
+    
+    # Update existing set or append
+    existing_set = next((s for s in exercise["sets"] if s["set_number"] == set_number), None)
+    if existing_set:
+        existing_set.update(set_data)
+    else:
+        exercise["sets"].append(set_data)
+    
+    set_projection("current_workout", workout, user_id)
+
+elif event_type == EventType.SET_STATUS_UPDATED:
+    workout = get_projection("current_workout", user_id)
+    if not workout:
+        return
+    
+    exercise_id = payload["exercise_id"]
+    set_number = payload["set_number"]
+    
+    exercise = next((e for e in workout["exercises"] if e["exercise_id"] == exercise_id), None)
+    if exercise:
+        set_data = next((s for s in exercise["sets"] if s["set_number"] == set_number), None)
+        if set_data:
+            set_data["status"] = payload["status"]
+            if payload.get("actual_reps"):
+                set_data["actual_reps"] = payload["actual_reps"]
+            if payload.get("actual_weight"):
+                set_data["actual_weight"] = payload["actual_weight"]
+    
+    set_projection("current_workout", workout, user_id)
+```
+
+#### 8.3 Live Workout Execution UI
+
+**Update `frontend/index.html`** - Add execution mode view:
+
+```html
+<!-- Execution Mode (when workoutActive && fromTemplate) -->
+<div x-show="workoutActive && executionMode" class="space-y-4">
+    
+    <!-- Header -->
+    <div class="bg-gray-800 rounded-lg p-4">
+        <div class="flex justify-between items-center">
+            <div>
+                <h2 class="text-lg font-bold" x-text="currentTemplateName"></h2>
+                <div class="text-sm text-gray-400" x-text="getWorkoutDuration()"></div>
+            </div>
+            <div class="text-right">
+                <div class="text-2xl font-bold text-green-400" x-text="getProgressText()"></div>
+                <div class="text-sm text-gray-400">sets done</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Exercise List -->
+    <div class="space-y-3">
+        <template x-for="(exercise, exIndex) in executionExercises" :key="exercise.exercise_id">
+            <div 
+                class="bg-gray-800 rounded-lg p-4"
+                :class="{'ring-2 ring-green-500': currentExerciseIndex === exIndex}"
+            >
+                <!-- Exercise Header -->
+                <div class="flex justify-between items-center mb-3">
+                    <div class="font-semibold" x-text="getExerciseName(exercise.exercise_id)"></div>
+                    <div class="text-sm" :class="isExerciseComplete(exercise) ? 'text-green-400' : 'text-gray-400'">
+                        <span x-text="getCompletedSetsCount(exercise)"></span>/<span x-text="exercise.target_sets"></span> sets
+                    </div>
+                </div>
+                
+                <!-- Sets Grid -->
+                <div class="grid grid-cols-5 gap-2">
+                    <template x-for="setNum in exercise.target_sets" :key="setNum">
+                        <button 
+                            @click="openLogSetModal(exercise, setNum)"
+                            class="aspect-square rounded-lg flex items-center justify-center text-sm font-bold"
+                            :class="getSetButtonClass(exercise, setNum)"
+                        >
+                            <span x-show="getSetStatus(exercise, setNum) === 'pending'" x-text="setNum"></span>
+                            <span x-show="getSetStatus(exercise, setNum) === 'completed'">✓</span>
+                            <span x-show="getSetStatus(exercise, setNum) === 'failed'">✗</span>
+                            <span x-show="getSetStatus(exercise, setNum) === 'skipped'">−</span>
+                        </button>
+                    </template>
+                </div>
+                
+                <!-- Target Info -->
+                <div class="text-sm text-gray-400 mt-2">
+                    Target: <span x-text="exercise.target_reps"></span> reps 
+                    <span x-show="exercise.target_weight">@ <span x-text="exercise.target_weight"></span> lbs</span>
+                    <span x-show="exercise.set_type === 'amrap'" class="text-yellow-400 ml-2">AMRAP on last set</span>
+                </div>
+            </div>
+        </template>
+    </div>
+    
+    <!-- Rest Timer -->
+    <div x-show="restTimerActive" class="fixed bottom-24 left-4 right-4 bg-blue-600 rounded-xl p-4 text-center">
+        <div class="text-sm">Rest Time</div>
+        <div class="text-3xl font-bold" x-text="formatRestTime(restTimeRemaining)"></div>
+        <button @click="skipRestTimer()" class="text-sm underline mt-2">Skip</button>
+    </div>
+    
+    <!-- Finish Button -->
+    <button 
+        @click="finishWorkout()"
+        class="w-full bg-green-600 hover:bg-green-700 py-4 rounded-xl font-bold"
+    >
+        Finish Workout
+    </button>
+</div>
+
+<!-- Log Set Modal -->
+<div x-show="showLogSetModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+    <div class="bg-gray-800 rounded-xl p-6 w-80">
+        <h3 class="text-lg font-bold mb-4" x-text="`Set ${logSetData.setNumber}`"></h3>
+        
+        <div class="space-y-4">
+            <div>
+                <label class="text-sm text-gray-400">Reps (target: <span x-text="logSetData.targetReps"></span>)</label>
+                <input type="number" x-model.number="logSetData.actualReps" 
+                    class="w-full bg-gray-700 rounded px-3 py-2 mt-1">
+            </div>
+            <div>
+                <label class="text-sm text-gray-400">Weight (target: <span x-text="logSetData.targetWeight"></span>)</label>
+                <input type="number" x-model.number="logSetData.actualWeight"
+                    class="w-full bg-gray-700 rounded px-3 py-2 mt-1">
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-3 gap-2 mt-6">
+            <button @click="logSet('completed')" class="bg-green-600 py-3 rounded-lg font-bold">✓ Done</button>
+            <button @click="logSet('failed')" class="bg-red-600 py-3 rounded-lg font-bold">✗ Failed</button>
+            <button @click="logSet('skipped')" class="bg-gray-600 py-3 rounded-lg font-bold">− Skip</button>
+        </div>
+        
+        <button @click="showLogSetModal = false" class="w-full mt-3 text-gray-400">Cancel</button>
+    </div>
+</div>
+```
+
+#### 8.4 Frontend JavaScript for Execution Mode
+
+**Add to `frontend/js/app.js`**:
+
+```javascript
+// Add to Alpine data
+executionMode: false,
+executionExercises: [],
+currentExerciseIndex: 0,
+currentTemplateName: '',
+showLogSetModal: false,
+logSetData: {},
+restTimerActive: false,
+restTimeRemaining: 0,
+restTimerInterval: null,
+
+// When starting from template, enter execution mode
+async startWorkoutFromTemplate(templateId) {
+    const template = this.templates.find(t => t.id === templateId);
+    if (!template) return;
+    
+    await this.startWorkout(templateId);
+    
+    // Set up execution mode
+    this.executionMode = true;
+    this.currentTemplateName = template.name;
+    this.executionExercises = template.exercises.map(e => ({
+        exercise_id: e.exercise_id || e,
+        target_sets: e.target_sets || 3,
+        target_reps: e.target_reps || 8,
+        target_weight: e.target_weight,
+        set_type: e.set_type || 'standard',
+        logged_sets: []
+    }));
+},
+
+getSetStatus(exercise, setNum) {
+    const set = exercise.logged_sets?.find(s => s.set_number === setNum);
+    return set?.status || 'pending';
+},
+
+getSetButtonClass(exercise, setNum) {
+    const status = this.getSetStatus(exercise, setNum);
+    return {
+        'bg-gray-700': status === 'pending',
+        'bg-green-600': status === 'completed',
+        'bg-red-600': status === 'failed',
+        'bg-gray-600': status === 'skipped'
+    };
+},
+
+getCompletedSetsCount(exercise) {
+    return exercise.logged_sets?.filter(s => s.status === 'completed').length || 0;
+},
+
+isExerciseComplete(exercise) {
+    const completedCount = this.getCompletedSetsCount(exercise);
+    return completedCount >= exercise.target_sets;
+},
+
+getProgressText() {
+    let completed = 0;
+    let total = 0;
+    for (const ex of this.executionExercises) {
+        completed += this.getCompletedSetsCount(ex);
+        total += ex.target_sets;
+    }
+    return `${completed}/${total}`;
+},
+
+openLogSetModal(exercise, setNum) {
+    this.logSetData = {
+        exercise: exercise,
+        setNumber: setNum,
+        targetReps: exercise.target_reps,
+        targetWeight: exercise.target_weight,
+        actualReps: exercise.target_reps,
+        actualWeight: exercise.target_weight
+    };
+    this.showLogSetModal = true;
+},
+
+async logSet(status) {
+    const { exercise, setNumber, actualReps, actualWeight, targetReps, targetWeight } = this.logSetData;
+    
+    // Emit event
+    await fetch('/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            event_type: 'SetLogged',
+            payload: {
+                exercise_id: exercise.exercise_id,
+                set_number: setNumber,
+                status: status,
+                target_reps: targetReps,
+                target_weight: targetWeight,
+                actual_reps: actualReps,
+                actual_weight: actualWeight
+            }
+        })
+    });
+    
+    // Update local state
+    if (!exercise.logged_sets) exercise.logged_sets = [];
+    exercise.logged_sets.push({
+        set_number: setNumber,
+        status: status,
+        actual_reps: actualReps,
+        actual_weight: actualWeight
+    });
+    
+    this.showLogSetModal = false;
+    
+    // Start rest timer if completed
+    if (status === 'completed') {
+        this.startRestTimer(exercise.rest_seconds || 90);
+    }
+},
+
+startRestTimer(seconds) {
+    this.restTimeRemaining = seconds;
+    this.restTimerActive = true;
+    
+    this.restTimerInterval = setInterval(() => {
+        this.restTimeRemaining--;
+        if (this.restTimeRemaining <= 0) {
+            this.stopRestTimer();
+            // Optional: play sound or vibrate
+        }
+    }, 1000);
+},
+
+skipRestTimer() {
+    this.stopRestTimer();
+},
+
+stopRestTimer() {
+    this.restTimerActive = false;
+    if (this.restTimerInterval) {
+        clearInterval(this.restTimerInterval);
+        this.restTimerInterval = null;
+    }
+},
+
+formatRestTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+},
+
+getWorkoutDuration() {
+    if (!this.workoutStartTime) return '';
+    const elapsed = Math.floor((Date.now() - this.workoutStartTime) / 1000 / 60);
+    return `${elapsed} min`;
+}
+```
+
+#### 8.5 Workout Completion Summary
+
+**Add to `frontend/index.html`**:
+
+```html
+<!-- Workout Complete Modal -->
+<div x-show="showWorkoutSummary" class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center">
+    <div class="bg-gray-800 rounded-xl p-6 w-full max-w-sm mx-4">
+        <h2 class="text-2xl font-bold text-center mb-4">✅ Workout Complete!</h2>
+        
+        <div class="space-y-3 mb-6">
+            <div class="flex justify-between">
+                <span class="text-gray-400">Duration</span>
+                <span x-text="workoutSummary.duration"></span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Exercises</span>
+                <span x-text="workoutSummary.exerciseCount"></span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Sets Completed</span>
+                <span x-text="workoutSummary.completedSets + '/' + workoutSummary.totalSets"></span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-400">Total Volume</span>
+                <span x-text="workoutSummary.totalVolume + ' lbs'"></span>
+            </div>
+        </div>
+        
+        <!-- Performance Breakdown -->
+        <div class="bg-gray-700 rounded-lg p-3 mb-6">
+            <div class="text-sm text-gray-400 mb-2">Performance</div>
+            <div class="flex gap-4">
+                <div class="text-center">
+                    <div class="text-green-400 font-bold" x-text="workoutSummary.completed"></div>
+                    <div class="text-xs text-gray-400">Completed</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-red-400 font-bold" x-text="workoutSummary.failed"></div>
+                    <div class="text-xs text-gray-400">Failed</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-gray-400 font-bold" x-text="workoutSummary.skipped"></div>
+                    <div class="text-xs text-gray-400">Skipped</div>
+                </div>
+            </div>
+        </div>
+        
+        <button 
+            @click="closeWorkoutSummary()"
+            class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-xl font-bold"
+        >
+            Done
+        </button>
+    </div>
+</div>
+```
+
+#### 8.6 Voice Integration for Execution Mode
+
+**Update `backend/llm.py`**:
+
+```python
+EXECUTION_PROMPT = """You are a workout execution assistant. The user is PERFORMING a workout right now.
+
+Current workout state:
+{workout_context}
+
+Help them:
+- Log completed sets ("done", "finished that set")
+- Mark failed sets ("couldn't finish", "failed")
+- Skip sets ("skip this one")
+- Check progress ("how many sets left?")
+
+Keep responses brief - they're mid-workout!"""
+
+EXECUTION_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "log_set",
+            "description": "Log a set with the given status",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["completed", "failed", "skipped"]},
+                    "actual_reps": {"type": "integer"},
+                    "actual_weight": {"type": "number"}
+                },
+                "required": ["status"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_next_set",
+            "description": "Get info about the next set to perform"
+        }
+    }
+]
+```
+
+---
+
+### Sprint 8: Test Criteria
+
+```bash
+# 1. Create a template with 3 exercises (4 sets each)
+# 2. Start workout from template
+# Expected: Execution mode shows all exercises with set buttons
+
+# 3. Tap set button
+# Expected: Log Set modal opens with target values pre-filled
+
+# 4. Tap "Done" 
+# Expected: Set marked green, rest timer starts
+
+# 5. Complete all sets for one exercise
+# Expected: Exercise shows as complete (all green)
+
+# 6. Tap "Finish Workout"
+# Expected: Summary modal shows duration, sets completed/failed/skipped, volume
+
+# 7. Voice: Say "done with that set"
+# Expected: Current set logged as completed
+```
+
+### Sprint 8: Definition of Done
+
+- [ ] Execution mode displays all exercises with set grid
+- [ ] Can mark sets as completed/failed/skipped
+- [ ] Rest timer starts after completing a set
+- [ ] Progress indicator updates in real-time
+- [ ] Workout summary shows on completion
+- [ ] Voice commands work for logging sets
+
+---
+
+## Sprint 9: Weekly Program Planning
+
+### Goal
+Enable users to create weekly workout schedules and multi-week training programs. Ship with pre-built beginner programs.
+
+### Duration: 2 days
+
+### Dependencies: Sprint 7 (enhanced templates), Sprint 8 (execution mode)
+
+### Background
+
+Real training programs aren't individual workouts—they're structured weekly schedules:
+- **Monday:** Push Day A
+- **Tuesday:** Rest
+- **Wednesday:** Pull Day A
+- etc.
+
+And often change week-to-week (periodization).
+
+> **Note:** In Sprint 7, the "Weekly Schedule" and "Program Library" buttons in Plan Builder were hidden with `x-show="false"`. In this sprint, update those buttons to `x-show="true"` to enable the features.
+
+---
+
+### Deliverables
+
+#### 9.1 Data Models
+
+**Add to `backend/schema/events.py`**:
+
+```python
+class WeekTemplateCreatedPayload(BaseModel):
+    """Create a weekly workout schedule."""
+    week_template_id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    days: Dict[str, Optional[str]]  # e.g., {"monday": "template-id-1", "tuesday": None, ...}
+
+class WeekTemplateUpdatedPayload(BaseModel):
+    week_template_id: str
+    name: Optional[str] = None
+    days: Optional[Dict[str, Optional[str]]] = None
+
+class WeekTemplateDeletedPayload(BaseModel):
+    week_template_id: str
+
+class ProgramCreatedPayload(BaseModel):
+    """Create a multi-week training program."""
+    program_id: str = Field(default_factory=lambda: str(uuid4()))
+    name: str
+    description: Optional[str] = None
+    phases: List[Dict[str, Any]]  # [{phase_name, weeks: [1,2,3,4], week_template_id}, ...]
+
+class ProgramActivatedPayload(BaseModel):
+    """Set a program as the user's active program."""
+    program_id: str
+    start_date: Optional[str] = None  # ISO date, defaults to today
+
+class ProgramDeactivatedPayload(BaseModel):
+    """Deactivate the current program."""
+    program_id: str
+
+# Add to EventType enum
+class EventType(str, Enum):
+    # ... existing ...
+    WEEK_TEMPLATE_CREATED = "WeekTemplateCreated"
+    WEEK_TEMPLATE_UPDATED = "WeekTemplateUpdated"
+    WEEK_TEMPLATE_DELETED = "WeekTemplateDeleted"
+    PROGRAM_CREATED = "ProgramCreated"
+    PROGRAM_ACTIVATED = "ProgramActivated"
+    PROGRAM_DEACTIVATED = "ProgramDeactivated"
+```
+
+#### 9.2 Week Template Projection
+
+**Add to `backend/events.py`**:
+
+```python
+elif event_type == EventType.WEEK_TEMPLATE_CREATED:
+    week_templates = get_projection("week_templates", user_id) or []
+    
+    week_template = {
+        "id": payload["week_template_id"],
+        "name": payload["name"],
+        "days": payload["days"],
+        "created_at": datetime.utcnow().isoformat() + "Z"
+    }
+    week_templates.append(week_template)
+    set_projection("week_templates", week_templates, user_id)
+
+elif event_type == EventType.WEEK_TEMPLATE_UPDATED:
+    week_templates = get_projection("week_templates", user_id) or []
+    wt_id = payload["week_template_id"]
+    
+    for wt in week_templates:
+        if wt["id"] == wt_id:
+            if payload.get("name"):
+                wt["name"] = payload["name"]
+            if payload.get("days"):
+                wt["days"] = payload["days"]
+            break
+    set_projection("week_templates", week_templates, user_id)
+```
+
+#### 9.3 Programs API
+
+**Create `backend/api/programs.py`**:
+
+```python
+"""Program and week template endpoints."""
+from fastapi import APIRouter, HTTPException
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+from uuid import uuid4
+from datetime import datetime
+
+from backend.database import get_projection
+from backend.events import emit_event
+from backend.schema.events import EventType
+
+router = APIRouter(prefix="/api", tags=["programs"])
+
+class WeekDays(BaseModel):
+    monday: Optional[str] = None
+    tuesday: Optional[str] = None
+    wednesday: Optional[str] = None
+    thursday: Optional[str] = None
+    friday: Optional[str] = None
+    saturday: Optional[str] = None
+    sunday: Optional[str] = None
+
+class CreateWeekTemplateRequest(BaseModel):
+    name: str
+    days: WeekDays
+
+@router.get("/week-templates")
+async def list_week_templates():
+    return get_projection("week_templates", "default") or []
+
+@router.post("/week-templates")
+async def create_week_template(request: CreateWeekTemplateRequest):
+    wt_id = str(uuid4())
+    emit_event(
+        EventType.WEEK_TEMPLATE_CREATED,
+        {
+            "week_template_id": wt_id,
+            "name": request.name,
+            "days": request.days.model_dump()
+        },
+        "default"
+    )
+    return {"id": wt_id, "name": request.name}
+
+@router.get("/programs/active")
+async def get_active_program():
+    """Get active program and today's scheduled workout."""
+    active = get_projection("active_program", "default")
+    
+    if not active:
+        return {
+            "program": None,
+            "todays_workout": None,
+            "current_day": datetime.now().strftime("%A").lower()
+        }
+    
+    # Calculate current week and get today's workout
+    start = datetime.strptime(active["started_at"], "%Y-%m-%d")
+    days_elapsed = (datetime.now() - start).days
+    current_week = (days_elapsed // 7) + 1
+    current_day = datetime.now().strftime("%A").lower()
+    
+    # Find today's workout from week template
+    todays_workout = None
+    for phase in active.get("phases", []):
+        if current_week in phase.get("weeks", []):
+            week_templates = get_projection("week_templates", "default") or []
+            wt = next((w for w in week_templates if w["id"] == phase["week_template_id"]), None)
+            if wt:
+                template_id = wt["days"].get(current_day)
+                if template_id:
+                    templates = get_projection("templates", "default") or []
+                    todays_workout = next((t for t in templates if t["id"] == template_id), None)
+            break
+    
+    return {
+        "program": active,
+        "todays_workout": todays_workout,
+        "current_day": current_day,
+        "current_week": current_week
+    }
+```
+
+#### 9.4 Pre-built Template Library
+
+**Create `data/template_library.json`**:
+
+```json
+{
+  "version": "1.0",
+  "programs": [
+    {
+      "id": "stronglifts-5x5",
+      "name": "StrongLifts 5×5",
+      "category": "beginner",
+      "description": "Classic beginner strength program. 3 days per week, alternating A/B workouts.",
+      "tags": ["strength", "beginner", "barbell", "3-day"],
+      "days_per_week": 3,
+      "duration_weeks": null,
+      "templates": [
+        {
+          "id": "sl-workout-a",
+          "name": "Workout A",
+          "exercises": [
+            { "exercise_id": "squat", "target_sets": 5, "target_reps": 5, "target_weight": null },
+            { "exercise_id": "bench-press", "target_sets": 5, "target_reps": 5, "target_weight": null },
+            { "exercise_id": "barbell-row", "target_sets": 5, "target_reps": 5, "target_weight": null }
+          ]
+        },
+        {
+          "id": "sl-workout-b",
+          "name": "Workout B",
+          "exercises": [
+            { "exercise_id": "squat", "target_sets": 5, "target_reps": 5, "target_weight": null },
+            { "exercise_id": "overhead-press", "target_sets": 5, "target_reps": 5, "target_weight": null },
+            { "exercise_id": "deadlift", "target_sets": 1, "target_reps": 5, "target_weight": null }
+          ]
+        }
+      ],
+      "week_template": {
+        "name": "StrongLifts Week",
+        "days": {
+          "monday": "sl-workout-a",
+          "wednesday": "sl-workout-b",
+          "friday": "sl-workout-a"
+        }
+      },
+      "tips": [
+        "Start with empty bar (45 lbs) and add 5 lbs each session",
+        "Alternate A/B each workout day"
+      ]
+    },
+    {
+      "id": "basic-ppl",
+      "name": "Push/Pull/Legs (PPL)",
+      "category": "intermediate",
+      "description": "Popular 6-day split. Each muscle group trained twice per week.",
+      "tags": ["hypertrophy", "intermediate", "6-day"],
+      "days_per_week": 6,
+      "duration_weeks": 12,
+      "templates": [
+        {
+          "id": "ppl-push",
+          "name": "Push Day",
+          "exercises": [
+            { "exercise_id": "bench-press", "target_sets": 4, "target_reps": 8, "target_weight": null },
+            { "exercise_id": "overhead-press", "target_sets": 3, "target_reps": 10, "target_weight": null },
+            { "exercise_id": "incline-dumbbell-press", "target_sets": 3, "target_reps": 12, "target_weight": null },
+            { "exercise_id": "lateral-raise", "target_sets": 4, "target_reps": 15, "target_weight": null },
+            { "exercise_id": "tricep-pushdown", "target_sets": 3, "target_reps": 12, "target_weight": null }
+          ]
+        },
+        {
+          "id": "ppl-pull",
+          "name": "Pull Day",
+          "exercises": [
+            { "exercise_id": "barbell-row", "target_sets": 4, "target_reps": 8, "target_weight": null },
+            { "exercise_id": "pull-up", "target_sets": 3, "target_reps": 8, "target_weight": null },
+            { "exercise_id": "face-pull", "target_sets": 4, "target_reps": 15, "target_weight": null },
+            { "exercise_id": "dumbbell-curl", "target_sets": 3, "target_reps": 12, "target_weight": null }
+          ]
+        },
+        {
+          "id": "ppl-legs",
+          "name": "Legs Day",
+          "exercises": [
+            { "exercise_id": "squat", "target_sets": 4, "target_reps": 6, "target_weight": null },
+            { "exercise_id": "romanian-deadlift", "target_sets": 3, "target_reps": 10, "target_weight": null },
+            { "exercise_id": "leg-press", "target_sets": 3, "target_reps": 12, "target_weight": null },
+            { "exercise_id": "leg-curl", "target_sets": 3, "target_reps": 12, "target_weight": null },
+            { "exercise_id": "calf-raise", "target_sets": 4, "target_reps": 15, "target_weight": null }
+          ]
+        }
+      ],
+      "week_template": {
+        "name": "PPL Week",
+        "days": {
+          "monday": "ppl-push",
+          "tuesday": "ppl-pull",
+          "wednesday": "ppl-legs",
+          "thursday": "ppl-push",
+          "friday": "ppl-pull",
+          "saturday": "ppl-legs"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Create `backend/api/library.py`**:
+
+```python
+"""Template library for pre-built programs."""
+from fastapi import APIRouter, HTTPException
+from typing import List, Optional
+import json
+from pathlib import Path
+from uuid import uuid4
+
+from backend.events import emit_event
+from backend.schema.events import EventType
+
+router = APIRouter(prefix="/api/library", tags=["library"])
+
+LIBRARY_PATH = Path(__file__).parent.parent.parent / "data" / "template_library.json"
+
+def load_library():
+    if not LIBRARY_PATH.exists():
+        return {"programs": []}
+    with open(LIBRARY_PATH) as f:
+        return json.load(f)
+
+@router.get("/programs")
+async def list_library_programs(category: Optional[str] = None):
+    """List available programs in the library."""
+    library = load_library()
+    programs = library.get("programs", [])
+    
+    if category:
+        programs = [p for p in programs if p.get("category") == category]
+    
+    return [
+        {
+            "id": p["id"],
+            "name": p["name"],
+            "category": p["category"],
+            "description": p["description"],
+            "days_per_week": p.get("days_per_week"),
+            "tags": p.get("tags", [])
+        }
+        for p in programs
+    ]
+
+@router.get("/programs/{program_id}")
+async def get_library_program(program_id: str):
+    """Get full details of a library program."""
+    library = load_library()
+    for p in library.get("programs", []):
+        if p["id"] == program_id:
+            return p
+    raise HTTPException(404, "Program not found")
+
+@router.post("/programs/{program_id}/import")
+async def import_library_program(program_id: str):
+    """Import a library program into user's account."""
+    library = load_library()
+    program = next((p for p in library.get("programs", []) if p["id"] == program_id), None)
+    
+    if not program:
+        raise HTTPException(404, "Program not found")
+    
+    created_ids = {}
+    
+    # Create templates
+    for template in program.get("templates", []):
+        new_id = str(uuid4())
+        created_ids[template["id"]] = new_id
+        
+        emit_event(
+            EventType.TEMPLATE_CREATED,
+            {
+                "template_id": new_id,
+                "name": template["name"],
+                "exercises": template["exercises"],
+                "exercise_ids": [e["exercise_id"] for e in template["exercises"]]
+            },
+            "default"
+        )
+    
+    # Create week template
+    week_template_id = None
+    if program.get("week_template"):
+        week_template_id = str(uuid4())
+        mapped_days = {}
+        for day, tid in program["week_template"].get("days", {}).items():
+            mapped_days[day] = created_ids.get(tid)
+        
+        emit_event(
+            EventType.WEEK_TEMPLATE_CREATED,
+            {
+                "week_template_id": week_template_id,
+                "name": program["week_template"]["name"],
+                "days": mapped_days
+            },
+            "default"
+        )
+    
+    return {
+        "success": True,
+        "message": f"Imported '{program['name']}'",
+        "created_templates": list(created_ids.values()),
+        "week_template_id": week_template_id
+    }
+```
+
+---
+
+### Sprint 9: Test Criteria
+
+```bash
+# 1. GET /api/library/programs
+# Expected: Returns StrongLifts 5x5 and Basic PPL
+
+# 2. POST /api/library/programs/stronglifts-5x5/import
+# Expected: Creates Workout A, Workout B templates and week template
+
+# 3. Create custom week template via Plan Builder
+# Expected: 7-day calendar, can assign templates to days
+
+# 4. Activate a program
+# Expected: "Today's Workout" shows correct workout for current day
+```
+
+### Sprint 9: Definition of Done
+
+- [ ] Template library loads and displays pre-built programs
+- [ ] Can import library programs (creates templates + week template)
+- [ ] Can create custom week templates
+- [ ] Programs API returns today's scheduled workout
+- [ ] "Today's Workout" button shows correct workout or "Rest Day"
+
+---
+
+## Sprint 9.5: Progressive Overload System
+
+### Goal
+Implement automatic progression that calculates next workout targets based on performance.
+
+### Duration: 2 days
+
+### Dependencies: Sprint 8 (execution mode with set status), Sprint 9 (weekly programs)
+
+### Background
+
+Progressive overload is THE mechanism for getting stronger. Different exercises need different strategies:
+
+| Exercise Type | Example | Progression Strategy |
+|---------------|---------|---------------------|
+| Compound Lower | Squat, Deadlift | Linear (+5 lbs/session) |
+| Compound Upper | Bench, OHP | Linear (+2.5 lbs/session) |
+| Isolation | Curls, Lateral Raises | Double Progression (reps → weight) |
+| Bodyweight | Pull-ups, Dips | Rep progression → Add weight |
+
+---
+
+### Deliverables
+
+#### 9.5.1 Progression Rule Schema
+
+**Create `backend/schema/progression.py`**:
+
+```python
+"""Progression rule definitions."""
+from enum import Enum
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+
+class ProgressionType(str, Enum):
+    NONE = "none"
+    LINEAR = "linear"
+    DOUBLE_PROGRESSION = "double_progression"
+    BODYWEIGHT_TO_WEIGHTED = "bodyweight_to_weighted"
+
+class ProgressionRule(BaseModel):
+    type: ProgressionType
+    weight_increment: Optional[float] = None  # e.g., 5 lbs
+    unit: str = "lbs"
+    rep_floor: Optional[int] = None  # For double progression
+    rep_ceiling: Optional[int] = None
+    rep_target_before_weight: Optional[int] = None  # For bodyweight
+    deload_percent: float = 10.0
+    max_retries: int = 3
+
+class ProgressionState(BaseModel):
+    """Tracks progression for an exercise in a template."""
+    exercise_id: str
+    template_id: str
+    current_weight: float
+    current_reps: int
+    current_sets: int
+    consecutive_failures: int = 0
+    last_result: Optional[str] = None
+    next_weight: Optional[float] = None
+    next_reps: Optional[int] = None
+    progression_note: Optional[str] = None
+
+# Default progression by muscle group
+CATEGORY_DEFAULTS = {
+    "compound_lower": {"type": "linear", "weight_increment": 5},
+    "compound_upper_push": {"type": "linear", "weight_increment": 2.5},
+    "compound_upper_pull": {"type": "linear", "weight_increment": 2.5},
+    "isolation": {"type": "double_progression", "rep_floor": 8, "rep_ceiling": 12, "weight_increment": 5},
+    "bodyweight": {"type": "bodyweight_to_weighted", "rep_target_before_weight": 12, "weight_increment": 5}
+}
+```
+
+#### 9.5.2 Progression Logic
+
+**Create `backend/progression.py`**:
+
+```python
+"""Progression calculation logic."""
+from typing import Dict, Any, Optional, Tuple
+from backend.database import get_projection, set_projection, get_exercise
+from backend.schema.progression import CATEGORY_DEFAULTS
+
+def resolve_progression_rule(template_exercise: Dict, template: Dict, user_id: str = "default"):
+    """
+    Resolve progression rule with inheritance:
+    1. Exercise override in template
+    2. Template default
+    3. Exercise library default
+    4. Category default
+    5. Global fallback (linear +2.5)
+    """
+    # 1. Explicit on template exercise
+    if template_exercise.get("progression"):
+        return template_exercise["progression"]
+    
+    # 2. Template default
+    if template.get("default_progression"):
+        return template["default_progression"]
+    
+    # 3. Exercise library default
+    exercise_id = template_exercise.get("exercise_id")
+    if exercise_id:
+        exercise = get_exercise(exercise_id, user_id)
+        if exercise and exercise.get("default_progression"):
+            return exercise["default_progression"]
+        
+        # 4. Category default
+        muscle_group = exercise.get("muscle_group") if exercise else None
+        if muscle_group and muscle_group in CATEGORY_DEFAULTS:
+            return CATEGORY_DEFAULTS[muscle_group]
+    
+    # 5. Fallback
+    return {"type": "linear", "weight_increment": 2.5, "unit": "lbs"}
+
+def evaluate_performance(exercise_data: Dict, rule: Dict) -> Tuple[str, float, str]:
+    """
+    Evaluate workout performance.
+    Returns: (result, completion_percent, note)
+    """
+    sets = exercise_data.get("sets", [])
+    if not sets:
+        return ("skipped", 0.0, "No sets logged")
+    
+    total_target = sum(s.get("target_reps", 0) for s in sets if s.get("status") != "skipped")
+    total_actual = sum(s.get("actual_reps", 0) for s in sets if s.get("status") in ("completed", "failed"))
+    
+    if total_target == 0:
+        return ("skipped", 0.0, "No target reps")
+    
+    completion = (total_actual / total_target) * 100
+    
+    if completion >= 100:
+        return ("success", completion, "All targets met!")
+    elif completion >= 85:
+        return ("partial", completion, "Close - retry same weight")
+    elif completion >= 70:
+        return ("failure_minor", completion, "Consider smaller increment")
+    else:
+        return ("failure_major", completion, "Consider deload")
+
+def calculate_next_prescription(state: Dict, rule: Dict, result: str) -> Dict:
+    """Calculate next workout targets based on performance."""
+    rule_type = rule.get("type", "linear")
+    current_weight = state.get("current_weight", 0)
+    current_reps = state.get("current_reps", 8)
+    increment = rule.get("weight_increment", 2.5)
+    
+    if result == "success":
+        if rule_type == "linear":
+            return {
+                "next_weight": current_weight + increment,
+                "next_reps": current_reps,
+                "note": f"+{increment} lbs"
+            }
+        elif rule_type == "double_progression":
+            ceiling = rule.get("rep_ceiling", 12)
+            floor = rule.get("rep_floor", 8)
+            if current_reps >= ceiling:
+                return {
+                    "next_weight": current_weight + increment,
+                    "next_reps": floor,
+                    "note": f"Hit {ceiling} reps! +{increment} lbs, reset to {floor} reps"
+                }
+            else:
+                return {
+                    "next_weight": current_weight,
+                    "next_reps": current_reps + 1,
+                    "note": f"+1 rep (now {current_reps + 1}/{ceiling})"
+                }
+    
+    elif result == "partial":
+        return {
+            "next_weight": current_weight,
+            "next_reps": current_reps,
+            "note": "Retry same weight"
+        }
+    
+    elif result == "failure_major":
+        deload = rule.get("deload_percent", 10)
+        new_weight = current_weight * (1 - deload / 100)
+        return {
+            "next_weight": round(new_weight / 2.5) * 2.5,  # Round to nearest plate
+            "next_reps": current_reps,
+            "note": f"Deload {deload}%"
+        }
+    
+    return {"next_weight": current_weight, "next_reps": current_reps, "note": "No change"}
+```
+
+#### 9.5.3 Apply Progression on Workout Completion
+
+**Update `backend/events.py`** - Add progression evaluation:
+
+```python
+elif event_type == EventType.WORKOUT_COMPLETED:
+    # ... existing completion logic ...
+    
+    # Evaluate progression for each exercise
+    template_id = workout.get("template_id")
+    if template_id:
+        template = next((t for t in get_projection("templates", user_id) or [] if t["id"] == template_id), None)
+        
+        if template:
+            for exercise in workout.get("exercises", []):
+                exercise_id = exercise["exercise_id"]
+                template_ex = next((e for e in template.get("exercises", []) if e.get("exercise_id") == exercise_id), None)
+                
+                if template_ex:
+                    rule = resolve_progression_rule(template_ex, template, user_id)
+                    result, completion, note = evaluate_performance(exercise, rule)
+                    
+                    # Get current state
+                    states = get_projection("progression_states", user_id) or {}
+                    key = f"{template_id}:{exercise_id}"
+                    state = states.get(key, {
+                        "current_weight": exercise.get("sets", [{}])[0].get("actual_weight", 0),
+                        "current_reps": template_ex.get("target_reps", 8)
+                    })
+                    
+                    # Calculate next prescription
+                    next_rx = calculate_next_prescription(state, rule, result)
+                    
+                    # Update state
+                    state.update({
+                        "next_weight": next_rx["next_weight"],
+                        "next_reps": next_rx["next_reps"],
+                        "progression_note": next_rx["note"],
+                        "last_result": result
+                    })
+                    states[key] = state
+                    set_projection("progression_states", states, user_id)
+```
+
+---
+
+### Sprint 9.5: Test Criteria
+
+```bash
+# 1. Complete a workout successfully (all sets completed)
+# Expected: Progression state shows next_weight increased
+
+# 2. Fail a workout (< 70% completion)
+# Expected: Progression state shows deload recommendation
+
+# 3. Start workout from template with progression state
+# Expected: Target weights reflect progressed values
+
+# 4. Double progression: hit rep ceiling
+# Expected: Weight increases, reps reset to floor
+```
+
+### Sprint 9.5: Definition of Done
+
+- [ ] Progression rules resolve via inheritance chain
+- [ ] Performance evaluation categorizes results correctly
+- [ ] Next prescription calculated based on rule type
+- [ ] Progression state persists between workouts
+- [ ] Template exercises show progressed targets
+
+---
+
+## Sprint 10: Tutorial (Revised)
+
+### Goal
+Guided mock workout for new users, updated for the new Plan → Execute workflow.
+
+### Duration: 1.5 days
+
+### Dependencies: Sprint 7 (home screen), Sprint 8 (execution mode)
+
+### Key Deliverables
+
+1. **Tutorial state machine** - Updated 10-step flow:
+   - Welcome
+   - Explain 3 buttons (Today's Workout, Plan Builder, Quick Start)
+   - Open Plan Builder
+   - Browse Program Library
+   - Import StrongLifts 5×5
+   - View week schedule
+   - Start today's workout (simulated)
+   - Log a set (guided)
+   - Complete workout
+   - View summary
+
+2. **Sandbox mode** - Events not persisted
+3. **First-launch detection** - Show tutorial option for new users
+
+See `technical_specification.md` for implementation details.
+
+---
+
+## Sprint 11: Analytics + Export + Polish
 
 ### Goal
 Progress visualization, data export, UX polish
 
 ### Duration: 2 days
 
-### Dependencies: Sprint 3 (history), Sprint 6 (PRs)
+### Dependencies: Sprint 3 (history), Sprint 6 (PRs), Sprint 9.5 (progression)
 
 ### Key Deliverables
 
 1. **Time-based aggregates** - Daily, weekly, monthly stats
 2. **Volume chart** - Line chart of weekly volume
 3. **Exercise progress chart** - Max weight over time per exercise
-4. **CSV export** - Download all workout data
-5. **PWA manifest** - "Add to Home Screen"
-6. **Theme toggle** - Dark/light mode
+4. **Progression history** - Show progression decisions over time
+5. **CSV export** - Download all workout data
+6. **PWA manifest** - "Add to Home Screen"
 7. **Performance optimization** - Lazy loading, caching
 
 ---
@@ -2362,13 +4156,19 @@ Progress visualization, data export, UX polish
 Sprint 1 (Skeleton)
     └── Sprint 2 (Logging)
             ├── Sprint 3 (History)
-            │       └── Sprint 6 (Smart) ─────┐
-            │                                  ├── Sprint 7 (Tutorial)
-            ├── Sprint 4 (Templates)          │
-            │                                  │
-            └── Sprint 5 (Voice) ─────────────┘
-                                               │
-                                               └── Sprint 8 (Analytics)
+            │       └── Sprint 6 (Smart) ─────────────────┐
+            │                                              │
+            ├── Sprint 4 (Templates)                       │
+            │       └── Sprint 7 (Home + Templates) ───────┤
+            │               └── Sprint 8 (Execution) ──────┤
+            │                       └── Sprint 9 (Programs)│
+            │                               └── Sprint 9.5 (Progression)
+            │                                       │
+            └── Sprint 5 (Voice) ───────────────────┘
+                                                    │
+                                    Sprint 10 (Tutorial) ──┘
+                                            │
+                                    Sprint 11 (Analytics)
 ```
 
 ## Running the Project
@@ -2395,6 +4195,11 @@ open http://localhost:8000
 3. **Commit after each sprint** - Keep changes atomic (see git guidance below)
 4. **Ask if stuck** - Specs are detailed but not exhaustive
 5. **Frontend is minimal** - Focus on function over form initially
+6. **Backwards compatibility** - When updating schemas (Sprint 7+), handle both old and new formats
+7. **Template exercises** - Sprint 7 changes templates from `exercise_ids: List[str]` to `exercises: List[TemplateExercise]`
+8. **Progression states** - Sprint 9.5 adds `progression_states` projection - ensure it's initialized
+9. **Pre-built library** - Sprint 9 adds `data/template_library.json` - create this file
+10. **Mode-aware voice** - Sprints 7-8 add mode parameter to voice endpoint
 
 ---
 
@@ -2429,11 +4234,27 @@ git commit -m "Sprint 6: Smart features - PRs, previous values, history"
 
 # After Sprint 7
 git add -A
-git commit -m "Sprint 7: Tutorial - guided onboarding flow"
+git commit -m "Sprint 7: Home screen redesign + enhanced templates with defaults"
 
 # After Sprint 8
 git add -A
-git commit -m "Sprint 8: Analytics + Export + Polish - MVP complete"
+git commit -m "Sprint 8: Guided workout execution with set status tracking"
+
+# After Sprint 9
+git add -A
+git commit -m "Sprint 9: Weekly programs + pre-built template library"
+
+# After Sprint 9.5
+git add -A
+git commit -m "Sprint 9.5: Progressive overload system with auto-progression"
+
+# After Sprint 10
+git add -A
+git commit -m "Sprint 10: Tutorial updated for new workflow"
+
+# After Sprint 11
+git add -A
+git commit -m "Sprint 11: Analytics + Export + Polish - MVP complete"
 ```
 
 ---

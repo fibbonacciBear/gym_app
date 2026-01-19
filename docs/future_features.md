@@ -207,12 +207,76 @@ Add calorie fields to workout completion data:
 - [x] Do we want to integrate with health APIs (Apple Health, Google Fit) for weight sync? → **Yes, see "Health Platform Integrations" section below**
 - [ ] Should calorie display be optional/hideable for users who find it distracting?
 - [x] What LLM provider to use? → **Supporting both OpenAI and Anthropic (configurable)**
+- [x] Should templates support target sets/reps/weights? → **Yes, see Sprint 7**
+- [x] Should we have guided workout execution? → **Yes, see Sprint 8**
+- [x] Should we support weekly programs? → **Yes, see Sprint 9**
+- [x] Should we have auto-progression? → **Yes, see Sprint 9.5**
+- [x] Should we ship pre-built programs? → **Yes, StrongLifts & PPL in Sprint 9**
+
+---
+
+## 🏋️ Workout Execution & Program Planning
+
+**Status:** In Progress (Sprints 7-9.5)  
+**Priority:** Critical  
+**Requested by:** User testing feedback
+
+### Problem Statement
+
+The app currently conflates two distinct concepts:
+1. **Workout Template Creation** - Defining *what* a workout should include
+2. **Workout Execution** - Actually *performing* the workout and recording progress
+
+### Solution: Home Screen Redesign
+
+Three buttons that map to distinct user intents:
+
+| Button | User Intent | Action |
+|--------|-------------|--------|
+| **Today's Workout** | "I have a plan, execute it" | Load scheduled template into Execution Mode |
+| **Plan Builder** | "I want to design/edit programs" | Open planning modal |
+| **Quick Start** | "Just let me lift" | Start empty workout, add exercises ad-hoc |
+
+### Key Features
+
+- **Sprint 7:** Home screen redesign, enhanced templates with target sets/reps/weights
+- **Sprint 8:** Guided execution mode with set status (completed/failed/skipped), rest timer
+- **Sprint 9:** Weekly programs, pre-built template library (StrongLifts, PPL)
+- **Sprint 9.5:** Progressive overload with auto-progression
+
+See `implementation_plan.md` for full details.
 
 ---
 
 ## 📋 Other Planned Features
 
-*(Add future feature requests below)*
+### 📊 Templates Without Specific Weights
+
+**Status:** Supported (Sprint 7)  
+**Priority:** Medium
+
+Templates can have `target_weight: null` for shareable/generic templates. Weights can be:
+- Entered manually when starting workout
+- Auto-populated from history (post-MVP)
+- Calculated as % of training max (post-MVP)
+
+### 🔄 Custom Progression Rules (Future)
+
+**Status:** Planned  
+**Priority:** Medium  
+**Dependencies:** Sprint 9.5
+
+Visual IF/THEN rule builder for advanced users:
+- "If completion >= 100% AND avg RPE <= 7, increase weight by 10 lbs"
+- "If 2 consecutive failures, deload 10%"
+
+### 🔗 Progression Groups (Future)
+
+**Status:** Planned  
+**Priority:** Low  
+**Dependencies:** Sprint 9.5
+
+Link multiple templates to share progression state for common exercises (e.g., Push A and Push B both progress bench press together).
 
 ---
 
